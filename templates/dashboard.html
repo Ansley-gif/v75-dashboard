@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>V75 Dashboard — Solid Gold Performance</title>
+
+    <!-- PWA -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#0a0e17">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="V75 Dash">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
+
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- ================================================================= -->
+    <!-- HEADER                                                            -->
+    <!-- ================================================================= -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <span class="logo-icon">◆</span>
+                <div>
+                    <h1>V75 BEHAVIORAL DASHBOARD</h1>
+                    <span class="subtitle">Solid Gold Performance</span>
+                </div>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="connection-badge" id="connBadge">
+                <span class="conn-dot"></span>
+                <span class="conn-text">Connecting...</span>
+            </div>
+            <div class="price-display" id="priceDisplay">
+                <span class="price-label">V75</span>
+                <span class="price-value" id="currentPrice">—</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ================================================================= -->
+    <!-- MAIN GRID                                                         -->
+    <!-- ================================================================= -->
+    <main class="dashboard-grid">
+
+        <!-- ============================================================= -->
+        <!-- PANEL A: MARKET REGIME — The backbone of the whole dashboard  -->
+        <!-- ============================================================= -->
+        <section class="panel panel-regime" id="panelRegime">
+            <div class="panel-header">
+                <h2>MARKET REGIME</h2>
+                <span class="panel-tag">PANEL A — What state is the market in?</span>
+            </div>
+
+            <!-- Primary regime display -->
+            <div class="regime-primary" id="regimePrimary">
+                <div class="regime-badge explainable" data-explain="regime" id="regimeBadge">
+                    <span class="regime-icon" id="regimeIcon">⏳</span>
+                    <div>
+                        <span class="regime-name" id="regimeName">LOADING</span>
+                        <span class="regime-sub" id="regimeSub">Waiting for data...</span>
+                    </div>
+                </div>
+                <div class="regime-confidence explainable" data-explain="confidence">
+                    <span class="conf-label">Confidence</span>
+                    <div class="conf-bar-track">
+                        <div class="conf-bar-fill" id="confBar" style="width: 0%"></div>
+                    </div>
+                    <span class="conf-value" id="confValue">0%</span>
+                </div>
+            </div>
+
+            <!-- Multi-timeframe regime strip -->
+            <div class="tf-strip explainable" data-explain="tf_strip" id="tfStrip">
+                <div class="tf-item" data-tf="1m">
+                    <span class="tf-label">1M</span>
+                    <span class="tf-regime-dot" id="dot-1m"></span>
+                    <span class="tf-regime-text" id="regime-1m">—</span>
+                </div>
+                <div class="tf-item" data-tf="5m">
+                    <span class="tf-label">5M</span>
+                    <span class="tf-regime-dot" id="dot-5m"></span>
+                    <span class="tf-regime-text" id="regime-5m">—</span>
+                </div>
+                <div class="tf-item active" data-tf="15m">
+                    <span class="tf-label">15M</span>
+                    <span class="tf-regime-dot" id="dot-15m"></span>
+                    <span class="tf-regime-text" id="regime-15m">—</span>
+                </div>
+                <div class="tf-item" data-tf="1h">
+                    <span class="tf-label">1H</span>
+                    <span class="tf-regime-dot" id="dot-1h"></span>
+                    <span class="tf-regime-text" id="regime-1h">—</span>
+                </div>
+                <div class="tf-item" data-tf="4h">
+                    <span class="tf-label">4H</span>
+                    <span class="tf-regime-dot" id="dot-4h"></span>
+                    <span class="tf-regime-text" id="regime-4h">—</span>
+                </div>
+            </div>
+
+            <!-- Regime scoring breakdown -->
+            <div class="regime-scores explainable" data-explain="regime_scores" id="regimeScores">
+                <div class="score-row">
+                    <span class="score-label">Trending</span>
+                    <div class="score-bar-track"><div class="score-bar trending" id="scoreTrending" style="width:0%"></div></div>
+                    <span class="score-val" id="valTrending">0</span>
+                </div>
+                <div class="score-row">
+                    <span class="score-label">Ranging</span>
+                    <div class="score-bar-track"><div class="score-bar ranging" id="scoreRanging" style="width:0%"></div></div>
+                    <span class="score-val" id="valRanging">0</span>
+                </div>
+                <div class="score-row">
+                    <span class="score-label">Expanding</span>
+                    <div class="score-bar-track"><div class="score-bar expanding" id="scoreExpanding" style="width:0%"></div></div>
+                    <span class="score-val" id="valExpanding">0</span>
+                </div>
+                <div class="score-row">
+                    <span class="score-label">Choppy</span>
+                    <div class="score-bar-track"><div class="score-bar choppy" id="scoreChoppy" style="width:0%"></div></div>
+                    <span class="score-val" id="valChoppy">0</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- METRICS PANEL: Statistical readings                           -->
+        <!-- ============================================================= -->
+        <section class="panel panel-metrics" id="panelMetrics">
+            <div class="panel-header">
+                <h2>STATISTICAL METRICS</h2>
+                <span class="panel-tag">Underlying indicator values</span>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-card explainable" data-explain="adx">
+                    <span class="metric-label">ADX</span>
+                    <span class="metric-value" id="metricAdx">—</span>
+                    <span class="metric-desc">Trend Strength</span>
+                </div>
+                <div class="metric-card explainable" data-explain="atr_ratio">
+                    <span class="metric-label">ATR Ratio</span>
+                    <span class="metric-value" id="metricAtrRatio">—</span>
+                    <span class="metric-desc">Vol vs Avg Vol</span>
+                </div>
+                <div class="metric-card explainable" data-explain="hurst">
+                    <span class="metric-label">Hurst</span>
+                    <span class="metric-value" id="metricHurst">—</span>
+                    <span class="metric-desc">&gt;0.5 Trend · &lt;0.5 Revert</span>
+                </div>
+                <div class="metric-card explainable" data-explain="autocorrelation">
+                    <span class="metric-label">Autocorrelation</span>
+                    <span class="metric-value" id="metricAutocorr">—</span>
+                    <span class="metric-desc">Return Persistence</span>
+                </div>
+                <div class="metric-card explainable" data-explain="bb_width">
+                    <span class="metric-label">BB Width</span>
+                    <span class="metric-value" id="metricBBWidth">—</span>
+                    <span class="metric-desc">Compression / Expansion</span>
+                </div>
+                <div class="metric-card explainable" data-explain="bb_position">
+                    <span class="metric-label">BB Position</span>
+                    <span class="metric-value" id="metricBBPos">—</span>
+                    <span class="metric-desc">0=Lower · 1=Upper</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- STREAK PANEL: Candle streak behavior                          -->
+        <!-- ============================================================= -->
+        <section class="panel panel-streak" id="panelStreak">
+            <div class="panel-header">
+                <h2>STREAK BEHAVIOR</h2>
+                <span class="panel-tag">Consecutive candle analysis</span>
+            </div>
+
+            <div class="streak-display explainable" data-explain="streak">
+                <div class="streak-main">
+                    <span class="streak-count" id="streakCount">—</span>
+                    <span class="streak-dir" id="streakDir">—</span>
+                </div>
+                <div class="streak-stats">
+                    <div class="streak-stat">
+                        <span class="stat-label">Avg Streak</span>
+                        <span class="stat-value" id="streakAvg">—</span>
+                    </div>
+                    <div class="streak-stat">
+                        <span class="stat-label">Max Streak</span>
+                        <span class="stat-value" id="streakMax">—</span>
+                    </div>
+                    <div class="streak-stat">
+                        <span class="stat-label">Std Dev</span>
+                        <span class="stat-value" id="streakStd">—</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- PANEL B: TENDENCY ENGINE — When does the market move cleanly? -->
+        <!-- ============================================================= -->
+        <section class="panel panel-tendency" id="panelTendency">
+            <div class="panel-header">
+                <h2>TENDENCY ENGINE</h2>
+                <span class="panel-tag">PANEL B — When does the market move cleanly?</span>
+            </div>
+
+            <!-- Tendency Summary Banner -->
+            <div class="tendency-summary explainable" data-explain="tendency_summary" id="tendencySummary">
+                <div class="tendency-verdict">
+                    <span class="tendency-label">Current Window</span>
+                    <span class="tendency-bias" id="tendencyBias">—</span>
+                    <span class="tendency-strength-label">Strength</span>
+                    <div class="tendency-strength-bar-track">
+                        <div class="tendency-strength-bar" id="tendencyStrengthBar" style="width:0%"></div>
+                    </div>
+                    <span class="tendency-strength-val" id="tendencyStrengthVal">0%</span>
+                </div>
+                <div class="tendency-context">
+                    <div class="tendency-ctx-item">
+                        <span class="ctx-label">Hour</span>
+                        <span class="ctx-value" id="ctxHour">—</span>
+                    </div>
+                    <div class="tendency-ctx-item">
+                        <span class="ctx-label">Day</span>
+                        <span class="ctx-value" id="ctxDay">—</span>
+                    </div>
+                    <div class="tendency-ctx-item">
+                        <span class="ctx-label">Session</span>
+                        <span class="ctx-value" id="ctxSession">—</span>
+                    </div>
+                    <div class="tendency-ctx-item">
+                        <span class="ctx-label">Quality</span>
+                        <span class="ctx-value" id="ctxQuality">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sub-tab navigation for tendency views -->
+            <div class="tendency-tabs">
+                <button class="tendency-tab active" data-view="hourly">Hourly</button>
+                <button class="tendency-tab" data-view="weekday">Day of Week</button>
+                <button class="tendency-tab" data-view="session">Sessions</button>
+                <button class="tendency-tab" data-view="monthly">Monthly</button>
+                <button class="tendency-tab" data-view="quarterly">Quarterly</button>
+                <button class="tendency-tab" data-view="rolling">Rolling</button>
+            </div>
+
+            <!-- Hourly Heatmap -->
+            <div class="tendency-view active explainable" data-explain="hourly_heatmap" id="view-hourly">
+                <div class="heatmap-grid" id="hourlyHeatmap"></div>
+                <div class="heatmap-legend">
+                    <span class="legend-label">Bearish</span>
+                    <div class="legend-gradient"></div>
+                    <span class="legend-label">Bullish</span>
+                </div>
+            </div>
+
+            <!-- Day of Week -->
+            <div class="tendency-view" id="view-weekday">
+                <div class="tendency-bars" id="weekdayBars"></div>
+            </div>
+
+            <!-- Sessions -->
+            <div class="tendency-view explainable" data-explain="session_analysis" id="view-session">
+                <div class="tendency-bars" id="sessionBars"></div>
+            </div>
+
+            <!-- Monthly Seasonal -->
+            <div class="tendency-view explainable" data-explain="monthly_seasonal" id="view-monthly">
+                <div class="seasonal-strip" id="monthlyStrip"></div>
+            </div>
+
+            <!-- Quarterly -->
+            <div class="tendency-view explainable" data-explain="quarterly_analysis" id="view-quarterly">
+                <div class="tendency-bars" id="quarterlyBars"></div>
+                <div class="quarterly-phases" id="quarterlyPhases"></div>
+                <div class="shift-analysis" id="shiftAnalysis"></div>
+            </div>
+
+            <!-- Rolling Momentum -->
+            <div class="tendency-view explainable" data-explain="rolling_momentum" id="view-rolling">
+                <div class="rolling-cards" id="rollingCards"></div>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- PANEL C: SETUP SCANNER — What setup is active right now?      -->
+        <!-- ============================================================= -->
+        <section class="panel panel-setups" id="panelSetups">
+            <div class="panel-header">
+                <h2>SETUP SCANNER</h2>
+                <span class="panel-tag">PANEL C — What setup is active right now?</span>
+            </div>
+
+            <!-- Active setup count + no-setup state -->
+            <div class="setup-status-bar explainable" data-explain="setup_scanner" id="setupStatusBar">
+                <span class="setup-count" id="setupCount">Scanning...</span>
+                <span class="setup-regime-ctx" id="setupRegimeCtx"></span>
+            </div>
+
+            <!-- Setup cards container -->
+            <div class="setup-cards" id="setupCards">
+                <div class="setup-empty" id="setupEmpty">
+                    <span class="empty-icon">⏳</span>
+                    <span class="empty-text">Scanning for setups...</span>
+                </div>
+            </div>
+
+            <!-- Multi-timeframe scanner summary -->
+            <div class="setup-mtf-strip explainable" data-explain="setup_mtf" id="setupMtfStrip">
+                <div class="mtf-title">MULTI-TIMEFRAME</div>
+                <div class="mtf-items" id="mtfItems"></div>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- PANEL D: RISK MODULE — How much should I risk?                -->
+        <!-- ============================================================= -->
+        <section class="panel panel-risk" id="panelRisk">
+            <div class="panel-header">
+                <h2>RISK MODULE</h2>
+                <span class="panel-tag">PANEL D — How much should I risk?</span>
+            </div>
+
+            <!-- Account inputs -->
+            <div class="risk-inputs">
+                <div class="risk-input-group">
+                    <label>Account Balance ($)</label>
+                    <input type="number" id="riskBalance" value="1000" min="1" step="100">
+                </div>
+                <div class="risk-input-group">
+                    <label>Base Risk %</label>
+                    <input type="number" id="riskPct" value="1" min="0.25" max="5" step="0.25">
+                </div>
+                <div class="risk-input-group">
+                    <label>Stop Type</label>
+                    <select id="riskStopType">
+                        <option value="tight">Tight (1× ATR)</option>
+                        <option value="normal" selected>Normal (1.5× ATR)</option>
+                        <option value="wide">Wide (2× ATR)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Volatility adjustment banner -->
+            <div class="vol-adjustment" id="volAdjustment">
+                <div class="vol-condition">
+                    <span class="vol-label">Volatility</span>
+                    <span class="vol-value" id="volCondition">—</span>
+                </div>
+                <div class="vol-detail">
+                    <span class="vol-label">ATR Ratio</span>
+                    <span class="vol-value" id="volAtrRatio">—</span>
+                </div>
+                <div class="vol-detail">
+                    <span class="vol-label">Base → Adjusted</span>
+                    <span class="vol-value" id="volScale">—</span>
+                </div>
+            </div>
+
+            <!-- Stop & position grid -->
+            <div class="risk-grid">
+                <!-- Stop levels -->
+                <div class="risk-card explainable" data-explain="atr_stop" id="riskStop">
+                    <div class="risk-card-title">ATR STOP</div>
+                    <div class="risk-big-num" id="stopDistance">—</div>
+                    <div class="risk-sub">distance (points)</div>
+                    <div class="risk-row">
+                        <span>Stop Long</span>
+                        <span id="stopLong" class="bearish">—</span>
+                    </div>
+                    <div class="risk-row">
+                        <span>Stop Short</span>
+                        <span id="stopShort" class="bullish">—</span>
+                    </div>
+                    <div class="risk-row">
+                        <span>Stop %</span>
+                        <span id="stopPct">—</span>
+                    </div>
+                </div>
+
+                <!-- Position size -->
+                <div class="risk-card explainable" data-explain="position_size" id="riskPosition">
+                    <div class="risk-card-title">POSITION SIZE</div>
+                    <div class="risk-big-num" id="positionLots">—</div>
+                    <div class="risk-sub">lots</div>
+                    <div class="risk-row">
+                        <span>Risk Amount</span>
+                        <span id="riskAmount">—</span>
+                    </div>
+                    <div class="risk-row">
+                        <span>Effective Risk</span>
+                        <span id="effectiveRisk">—</span>
+                    </div>
+                </div>
+
+                <!-- R:R targets -->
+                <div class="risk-card explainable" data-explain="rr_targets" id="riskRR">
+                    <div class="risk-card-title">R:R TARGETS</div>
+                    <div class="rr-targets" id="rrTargets"></div>
+                </div>
+            </div>
+
+            <!-- Stop comparison strip -->
+            <div class="stop-comparison" id="stopComparison">
+                <div class="stop-comp-title">STOP COMPARISON</div>
+                <div class="stop-comp-items" id="stopCompItems"></div>
+            </div>
+
+            <!-- Frequency governor -->
+            <div class="frequency-governor explainable" data-explain="frequency_governor" id="freqGovernor">
+                <div class="freq-status" id="freqStatus">
+                    <span class="freq-light" id="freqLight"></span>
+                    <span class="freq-text" id="freqText">Loading...</span>
+                </div>
+                <div class="freq-detail" id="freqDetail"></div>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- PANEL E: PERFORMANCE TRACKER — Where is YOUR edge?            -->
+        <!-- ============================================================= -->
+        <section class="panel panel-performance" id="panelPerformance">
+            <div class="panel-header">
+                <h2>PERFORMANCE TRACKER</h2>
+                <span class="panel-tag">PANEL E — Where is YOUR edge?</span>
+            </div>
+
+            <!-- Performance sub-tabs -->
+            <div class="perf-tabs">
+                <button class="perf-tab active" data-pview="overview">Overview</button>
+                <button class="perf-tab" data-pview="by-regime">By Regime</button>
+                <button class="perf-tab" data-pview="by-time">By Time</button>
+                <button class="perf-tab" data-pview="by-setup">By Setup</button>
+                <button class="perf-tab" data-pview="log">Trade Log</button>
+            </div>
+
+            <!-- Overview stats -->
+            <div class="perf-view active" id="pview-overview">
+                <div class="perf-stats-grid" id="perfStatsGrid"></div>
+                <div class="equity-chart-container">
+                    <canvas id="equityChart" height="120"></canvas>
+                </div>
+            </div>
+
+            <!-- By Regime -->
+            <div class="perf-view" id="pview-by-regime">
+                <div class="perf-breakdown" id="perfByRegime"></div>
+            </div>
+
+            <!-- By Time -->
+            <div class="perf-view" id="pview-by-time">
+                <div class="perf-time-section">
+                    <h4>By Session</h4>
+                    <div class="perf-breakdown" id="perfBySession"></div>
+                </div>
+                <div class="perf-time-section">
+                    <h4>By Day</h4>
+                    <div class="perf-breakdown" id="perfByDay"></div>
+                </div>
+            </div>
+
+            <!-- By Setup -->
+            <div class="perf-view" id="pview-by-setup">
+                <div class="perf-breakdown" id="perfBySetup"></div>
+            </div>
+
+            <!-- Trade Log -->
+            <div class="perf-view" id="pview-log">
+                <!-- Trade entry form -->
+                <div class="trade-form" id="tradeForm">
+                    <div class="form-title">LOG TRADE</div>
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label>Direction</label>
+                            <select id="tradeDirection">
+                                <option value="long">Long</option>
+                                <option value="short">Short</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label>Entry Price</label>
+                            <input type="number" id="tradeEntry" step="0.01">
+                        </div>
+                        <div class="form-field">
+                            <label>Exit Price</label>
+                            <input type="number" id="tradeExit" step="0.01">
+                        </div>
+                        <div class="form-field">
+                            <label>Stop Loss</label>
+                            <input type="number" id="tradeSL" step="0.01">
+                        </div>
+                        <div class="form-field">
+                            <label>Setup Type</label>
+                            <select id="tradeSetup">
+                                <option value="">— Select —</option>
+                                <option value="compression_breakout">Compression Breakout</option>
+                                <option value="pullback_to_trend">Pullback to Trend</option>
+                                <option value="mean_reversion">Mean Reversion</option>
+                                <option value="streak_exhaustion">Streak Exhaustion</option>
+                                <option value="order_block_touch">Order Block Touch</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label>Notes</label>
+                            <input type="text" id="tradeNotes" placeholder="Optional notes...">
+                        </div>
+                    </div>
+                    <button class="form-submit" id="tradeSubmit">LOG TRADE</button>
+                </div>
+
+                <!-- Trade history table -->
+                <div class="trade-table-wrap">
+                    <table class="trade-table" id="tradeTable">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Dir</th>
+                                <th>Entry</th>
+                                <th>Exit</th>
+                                <th>P&L</th>
+                                <th>R</th>
+                                <th>Regime</th>
+                                <th>Setup</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradeTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- PANEL G: AI INTERPRETER — What is the market telling you?     -->
+        <!-- ============================================================= -->
+        <section class="panel panel-interpreter" id="panelInterpreter">
+            <div class="panel-header">
+                <h2>AI INTERPRETER</h2>
+                <span class="panel-tag">PANEL G — What is the market telling you?</span>
+            </div>
+
+            <!-- Action Banner -->
+            <div class="interp-action-banner" id="interpBanner">
+                <div class="interp-action-left">
+                    <span class="interp-action-text" id="interpAction">LOADING...</span>
+                    <span class="interp-conviction" id="interpConviction">—</span>
+                </div>
+                <div class="interp-action-right">
+                    <div class="interp-context-pills">
+                        <span class="interp-pill" id="interpRegimePill">—</span>
+                        <span class="interp-pill" id="interpTendencyPill">—</span>
+                        <span class="interp-pill" id="interpSetupPill">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Narrative -->
+            <div class="interp-narrative" id="interpNarrative">
+                Waiting for market data...
+            </div>
+
+            <!-- Reasoning + Warnings -->
+            <div class="interp-details">
+                <div class="interp-section interp-reasoning">
+                    <div class="interp-section-title">Analysis</div>
+                    <div class="interp-list" id="interpReasoning"></div>
+                </div>
+                <div class="interp-section interp-warnings" id="interpWarningsSection" style="display:none">
+                    <div class="interp-section-title">Warnings</div>
+                    <div class="interp-list" id="interpWarnings"></div>
+                </div>
+            </div>
+
+            <!-- Best Setup Callout -->
+            <div class="interp-setup-callout" id="interpSetupCallout" style="display:none">
+                <span class="callout-label">TOP SETUP</span>
+                <span class="callout-name" id="interpSetupName">—</span>
+                <span class="callout-dir" id="interpSetupDir">—</span>
+                <span class="callout-score" id="interpSetupScore">—</span>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- PRICE CHART: Candlestick with regime overlay                  -->
+        <!-- ============================================================= -->
+        <section class="panel panel-chart" id="panelChart">
+            <div class="panel-header">
+                <h2>PRICE ACTION</h2>
+                <div class="chart-tf-selector">
+                    <button class="tf-btn" data-tf="1m">1M</button>
+                    <button class="tf-btn" data-tf="5m">5M</button>
+                    <button class="tf-btn active" data-tf="15m">15M</button>
+                    <button class="tf-btn" data-tf="1h">1H</button>
+                    <button class="tf-btn" data-tf="4h">4H</button>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="priceChart"></canvas>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- PANEL F: ALERT SYSTEM — What should you pay attention to now?  -->
+        <!-- ============================================================= -->
+        <section class="panel panel-alerts" id="panelAlerts">
+            <div class="panel-header">
+                <h2>ALERTS</h2>
+                <div class="alert-controls">
+                    <span class="alert-badge" id="alertBadge" style="display:none">0</span>
+                    <button class="alert-btn" id="alertDismissAll" title="Dismiss all">Clear All</button>
+                    <button class="alert-btn" id="alertToggleHistory" title="Show dismissed alerts">History</button>
+                </div>
+            </div>
+
+            <div class="alert-feed explainable" data-explain="alert_system" id="alertFeed">
+                <div class="alert-empty" id="alertEmpty">
+                    <span class="empty-text">No active alerts — all clear</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- PANEL H: CHAT ASSISTANT — Ask questions about the dashboard   -->
+        <!-- ============================================================= -->
+        <section class="panel panel-chat" id="panelChat">
+            <div class="panel-header">
+                <h2>ASK THE DASHBOARD</h2>
+                <span class="panel-tag">PANEL H — Ask anything about what you're seeing</span>
+            </div>
+
+            <!-- Chat messages -->
+            <div class="chat-messages" id="chatMessages">
+                <div class="chat-msg assistant">
+                    <div class="chat-msg-avatar">&#9670;</div>
+                    <div class="chat-msg-bubble">
+                        <div class="chat-msg-text">Hey! I can read the dashboard and explain what's happening. Try asking:<br><br>
+                        &bull; "What's the regime right now?"<br>
+                        &bull; "Should I trade right now?"<br>
+                        &bull; "What setups are active?"<br>
+                        &bull; "How am I performing?"<br>
+                        &bull; "What is Hurst?"<br>
+                        &bull; "What direction should I trade?"</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick question chips -->
+            <div class="chat-chips" id="chatChips">
+                <button class="chat-chip" data-q="What's the regime right now?">Regime?</button>
+                <button class="chat-chip" data-q="Should I trade right now?">Should I trade?</button>
+                <button class="chat-chip" data-q="What setups are active?">Setups?</button>
+                <button class="chat-chip" data-q="What direction should I trade?">Direction?</button>
+                <button class="chat-chip" data-q="How am I performing?">My performance?</button>
+                <button class="chat-chip" data-q="Give me a full market snapshot">Snapshot</button>
+            </div>
+
+            <!-- Input -->
+            <div class="chat-input-bar">
+                <input type="text" class="chat-input" id="chatInput" placeholder="Ask a question about the market..." autocomplete="off">
+                <button class="chat-send" id="chatSend">ASK</button>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- PHASE INDICATORS: What's coming next                          -->
+        <!-- ============================================================= -->
+        <section class="panel panel-phases">
+            <div class="panel-header">
+                <h2>BUILD PHASES</h2>
+                <span class="panel-tag">Dashboard roadmap</span>
+            </div>
+            <div class="phase-list">
+                <div class="phase-item active">
+                    <span class="phase-dot"></span>
+                    <div>
+                        <span class="phase-name">Phase 1 — Market Regime</span>
+                        <span class="phase-desc">Data pipeline + regime classification</span>
+                    </div>
+                </div>
+                <div class="phase-item active">
+                    <span class="phase-dot"></span>
+                    <div>
+                        <span class="phase-name">Phase 2 — Tendency Engine + Setups</span>
+                        <span class="phase-desc">Time patterns + setup scanner</span>
+                    </div>
+                </div>
+                <div class="phase-item active">
+                    <span class="phase-dot"></span>
+                    <div>
+                        <span class="phase-name">Phase 3 — Risk + Performance</span>
+                        <span class="phase-desc">Position sizing + trade journal</span>
+                    </div>
+                </div>
+                <div class="phase-item active">
+                    <span class="phase-dot"></span>
+                    <div>
+                        <span class="phase-name">Phase 4 — Alert System</span>
+                        <span class="phase-desc">Regime shifts + setup triggers</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ================================================================= -->
+    <!-- FOOTER                                                            -->
+    <!-- ================================================================= -->
+    <footer class="footer">
+        <span>SGP V75 Dashboard v1.0 — Phase 1</span>
+        <span id="footerTime"></span>
+    </footer>
+
+    <!-- Click-to-Explain Tooltip Overlay -->
+    <div class="explain-overlay" id="explainOverlay" style="display:none">
+        <div class="explain-modal">
+            <button class="explain-close" id="explainClose">&times;</button>
+            <h3 class="explain-title" id="explainTitle">—</h3>
+            <div class="explain-body" id="explainBody">—</div>
+            <div class="explain-usage" id="explainUsage">—</div>
+        </div>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+    <script>
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').then(reg => {
+            console.log('[PWA] Service worker registered, scope:', reg.scope);
+        }).catch(err => console.warn('[PWA] SW registration failed:', err));
+    }
+    </script>
+</body>
+</html>

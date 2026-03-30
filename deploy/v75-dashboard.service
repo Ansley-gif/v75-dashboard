@@ -1,0 +1,21 @@
+[Unit]
+Description=V75 Behavioral Dashboard — Solid Gold Performance
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/v75-dashboard
+EnvironmentFile=/opt/v75-dashboard/D.env
+ExecStart=/opt/v75-dashboard/venv/bin/gunicorn wsgi:app \
+    --bind 127.0.0.1:8085 \
+    --workers 1 \
+    --threads 4 \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile -
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

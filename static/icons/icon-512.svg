@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#0a0e17"/>
+  <rect x="16" y="16" width="480" height="480" rx="72" fill="none" stroke="#d4a843" stroke-width="6"/>
+  <!-- Diamond logo -->
+  <path d="M256 80 L376 256 L256 432 L136 256 Z" fill="none" stroke="#d4a843" stroke-width="8"/>
+  <path d="M256 120 L350 256 L256 392 L162 256 Z" fill="rgba(212,168,67,0.15)"/>
+  <!-- V75 text -->
+  <text x="256" y="274" text-anchor="middle" font-family="monospace" font-weight="900" font-size="72" fill="#d4a843">V75</text>
+</svg>
