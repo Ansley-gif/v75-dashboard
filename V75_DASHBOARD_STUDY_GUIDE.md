@@ -11,16 +11,21 @@ when to act on it, and when to ignore it. Written for your ICT-style methodology
 V75 is not driven by fundamentals. It's driven by an algorithm.
 You can't ask "why is it moving?" — only "HOW is it moving?"
 
-The dashboard answers four questions in order:
+The dashboard answers these questions in order:
 
 ```
-1. REGIME  → What state is the market in?        (Panel A)
-2. TIMING  → When does it move cleanly?           (Panel B)
-3. SETUP   → What pattern has edge right now?     (Panel C)
-4. RISK    → How much should I commit?            (Panel D)
+1. REGIME     → What state is the market in?          (Panel A)
+2. TIMING     → When does it move cleanly?            (Panel B)
+3. SETUP      → What pattern has edge right now?      (Panel C)
+4. RISK       → How much should I commit?             (Panel D)
+5. TRACK      → Am I actually profitable?             (Panel E)
+6. ALERTS     → What just changed?                    (Panel F)
+7. INTERPRET  → What does it all mean? (plain English)(Panel G)
+8. ASK        → Quick Q&A with live data              (Panel H)
 ```
 
 Each answer feeds the next. Never skip ahead.
+Panels G and H are your shortcut — they synthesize everything above.
 
 ---
 
@@ -302,6 +307,151 @@ THIS IS WHY THE DASHBOARD EXISTS.
 1. **Critical alerts override everything**. Regime shift on 1H = close longs if shifted bearish.
 2. **Overtrading alert = non-negotiable stop**. Every trader's #1 killer.
 3. **Setup confluence = your best trade**. When this fires, you pay full attention.
+
+---
+
+## PANEL G — AI INTERPRETER (The Market Read)
+
+### What It Does
+Reads ALL the panels for you and produces a single, plain-English action call.
+This is the panel you check first when you're on your phone and need a quick answer.
+
+### The Action Banner
+The large text at the top is the dashboard's recommendation:
+
+| Action | Meaning | What You Do |
+|--------|---------|-------------|
+| **LOOK FOR LONGS** | Regime + tendency + setups all point bullish | Watch for long entries. Don't force shorts. |
+| **LOOK FOR SHORTS** | Everything points bearish | Watch for short entries. Don't force longs. |
+| **WAIT** | Conditions are mixed or forming | Stay flat. Wait for clarity. |
+| **SIT OUT** | Choppy regime, no edge, or conflicting signals | Close the chart. Come back later. |
+
+### Conviction Level
+Next to the action, you'll see HIGH / MEDIUM / LOW / NONE:
+- **HIGH** = Multiple panels agree strongly. This is your best window.
+- **MEDIUM** = Partial agreement. Reduce size.
+- **LOW** = Weak signal. Only trade if you see a perfect setup.
+- **NONE** = No edge. Don't trade.
+
+### Context Pills
+Small tags showing what's driving the recommendation:
+- Regime state, tendency direction, active setups, streak info
+- These let you quickly verify WHY the interpreter is making its call
+
+### The Narrative
+Below the banner, the interpreter writes a paragraph explaining:
+1. Current regime and what it means for your trading
+2. What tendency data says about timing
+3. Which setups are active and whether they're compatible
+4. Specific action guidance
+
+### Setup Callout
+When a high-confidence setup is active, the interpreter highlights it with:
+- Setup name and composite score
+- Direction (BULLISH/BEARISH)
+- Stage (e.g., "breakout", "rejection")
+- Timeframe
+
+**KEY RULE**: The interpreter synthesizes — it doesn't replace your judgment.
+Use it as a checklist: if the interpreter says WAIT but you see a clear setup,
+check the panels yourself. If they disagree with your read, trust the data.
+
+---
+
+## PANEL H — ASK THE DASHBOARD (Interactive Q&A)
+
+### What It Does
+A chat interface where you type questions and get answers based on **live dashboard data**.
+Not a general AI — it specifically reads your current panels and answers with real numbers.
+
+### How to Use It
+- Type a question or click one of the quick-ask chips
+- The answer pulls from live regime, indicator, tendency, setup, and performance data
+- Great for quick checks when you can't scan all panels yourself
+
+### What You Can Ask
+
+| Topic | Example Questions |
+|-------|-------------------|
+| **Regime** | "What's the current regime?" "Is the market trending?" |
+| **Indicators** | "What's the ADX?" "Is Hurst persistent?" |
+| **Tendency** | "Is there a bullish tendency?" "Best hour to trade?" |
+| **Setups** | "Any active setups?" "What's the top setup?" |
+| **Risk** | "What lot size should I use?" "Where's the stop?" |
+| **Performance** | "What's my win rate?" "Am I profitable?" |
+| **Alerts** | "Any active alerts?" "What should I watch?" |
+| **Direction** | "Should I go long or short?" "What's the bias?" |
+
+### What It Can't Do
+- It doesn't place trades or connect to your broker
+- It can't predict what price will do next
+- It reads current data, not historical — use Panel E for past performance
+- It's rule-based, not AI — answers are consistent but not creative
+
+---
+
+## CLICK-TO-EXPLAIN (Learn While You Trade)
+
+### What It Does
+Click any panel header, indicator label, or data element on the dashboard and
+a tooltip pops up explaining what that number means and how to use it.
+
+### Why This Matters
+- You don't need to keep this study guide open while trading
+- The explanations are built into the dashboard itself
+- Each explanation includes: what it is, how to read it, and how to use it
+- Over time, you'll stop needing the tooltips — the numbers become intuitive
+
+### How to Use
+- Click any panel title → explains what the whole panel does
+- Click an indicator value → explains that specific metric
+- Click regime badge → explains what that regime means for trading
+- Click a setup card → explains that setup detector
+- Press the X or click outside to dismiss
+
+### 30+ Explainable Elements
+Every significant element across all 8 panels has an explanation.
+This turns the dashboard into a self-teaching tool — you learn the system
+by using it, not by reading documentation.
+
+---
+
+## TELEGRAM ALERTS (Stay Connected on Mobile)
+
+### What It Does
+Forwards **critical** and **warning** alerts to your Telegram as instant messages.
+You get notified even when you're not looking at the dashboard.
+
+### What Gets Sent
+| Severity | Sent to Telegram? | Example |
+|----------|-------------------|---------|
+| **Critical** | Yes (with sound) | Regime shift on 1H, setup confluence, overtrading |
+| **Warning** | Yes (silent) | Compression forming, streak exhaustion |
+| **Info** | No (too frequent) | Time window approaching |
+
+### Setup (One Time)
+1. Open Telegram, search for **@BotFather**
+2. Send `/newbot`, follow the prompts, name it something like "V75 Alerts"
+3. BotFather gives you a **token** — save it
+4. Start a chat with your new bot, send it any message
+5. Visit `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates`
+6. Find your **chat_id** in the response JSON
+7. Add both to your `D.env` file on the server:
+   ```
+   TELEGRAM_BOT_TOKEN=your_bot_token_here
+   TELEGRAM_CHAT_ID=your_chat_id_here
+   ```
+8. Restart the dashboard: `sudo systemctl restart v75-dashboard`
+9. Test it: visit `http://130.162.58.230:8085/api/telegram/test` (POST request)
+
+### Message Format
+```
+⚠️ V75 [1H]
+Regime Shift: RANGING → TRENDING
+Market regime changed to trending_up on the 1H timeframe. Confidence: 78%.
+```
+
+Critical alerts send with notification sound. Warning alerts arrive silently.
 
 ---
 

@@ -24,6 +24,8 @@ import asyncio
 import websockets
 import numpy as np
 import pandas as pd
+import urllib.request
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, jsonify, request, send_from_directory
 from functools import wraps
@@ -40,6 +42,13 @@ DERIV_WS_URL = f"wss://ws.derivws.com/websockets/v3?app_id={DERIV_APP_ID}"
 V75_SYMBOL = "R_75"  # Deriv symbol for Volatility 75
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "v75_data.db")
+
+# Telegram notifications
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+TELEGRAM_ENABLED = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+# Only forward these severities (skip 'info' to avoid spam)
+TELEGRAM_SEVERITIES = {"critical", "warning"}
 
 # Timeframes we track (in seconds)
 TIMEFRAMES = {
@@ -3262,6 +3271,15 @@ def api_alert_count():
     return jsonify({"count": count})
 
 
+@app.route("/api/telegram/test", methods=["POST"])
+def api_telegram_test():
+    """Send a test message to verify Telegram is configured."""
+    if not TELEGRAM_ENABLED:
+        return jsonify({"ok": False, "error": "Telegram not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in D.env"})
+    _send_telegram("warning", "Test Alert", "Telegram integration is working! V75 Dashboard alerts will appear here.", "")
+    return jsonify({"ok": True, "message": "Test message sent — check your Telegram"})
+
+
 # ---------------------------------------------------------------------------
 # AI Interpreter Engine (Phase 5 — Panel G)
 # ---------------------------------------------------------------------------
@@ -4455,6 +4473,32 @@ def _can_fire_alert(alert_type, timeframe=""):
     return True
 
 
+def _send_telegram(severity, title, message, timeframe=""):
+    """Send alert to Telegram. Runs in a thread to avoid blocking."""
+    if not TELEGRAM_ENABLED or severity not in TELEGRAM_SEVERITIES:
+        return
+
+    severity_emoji = {"critical": "\u26a0\ufe0f", "warning": "\u26a1"}.get(severity, "\u2139\ufe0f")
+    tf_tag = f" [{timeframe}]" if timeframe else ""
+    text = f"{severity_emoji} *V75{tf_tag}*\n*{title}*\n{message}"
+
+    def _do_send():
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload = urllib.parse.urlencode({
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": text,
+                "parse_mode": "Markdown",
+                "disable_notification": severity != "critical",
+            }).encode()
+            req = urllib.request.Request(url, data=payload, method="POST")
+            urllib.request.urlopen(req, timeout=10)
+        except Exception as e:
+            log.warning(f"Telegram send failed: {e}")
+
+    threading.Thread(target=_do_send, daemon=True).start()
+
+
 def _store_alert(alert_type, severity, title, message, timeframe="", data=None):
     """Write alert to DB and update cooldown."""
     key = f"{alert_type}:{timeframe}"
@@ -4471,6 +4515,7 @@ def _store_alert(alert_type, severity, title, message, timeframe="", data=None):
         conn.commit()
         conn.close()
         log.info(f"Alert: [{severity}] {title}")
+        _send_telegram(severity, title, message, timeframe)
     except Exception as e:
         log.error(f"Failed to store alert: {e}")
 
