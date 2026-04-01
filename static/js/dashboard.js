@@ -1300,10 +1300,72 @@
         }
     }
 
+    // ── Meta-Analysis Banner ───────────────────────────────────────
+    async function fetchMetaAnalysis() {
+        try {
+            const data = await fetchJSON(`/api/meta/${activeTimeframe}`);
+            if (data && !data.error) updateMetaBanner(data);
+        } catch (err) {
+            console.error("Meta fetch error:", err);
+        }
+    }
+
+    function updateMetaBanner(d) {
+        const score = d.alignment_score || 0;
+        const label = d.alignment_label || "—";
+        const ring = document.getElementById("metaScoreRing");
+        const val = document.getElementById("metaScoreValue");
+        const status = document.getElementById("metaScoreStatus");
+        const conflictsEl = document.getElementById("metaConflicts");
+        const fatigueEl = document.getElementById("metaFatigue");
+
+        if (!ring || !val) return;
+
+        val.textContent = score;
+        ring.className = "meta-score-ring " + label.toLowerCase();
+        status.textContent = d.meta_narrative ? d.meta_narrative.split(".")[0] + "." : label;
+
+        // Conflict pills
+        const conflicts = d.conflicts || [];
+        if (conflicts.length > 0) {
+            conflictsEl.innerHTML = conflicts.slice(0, 4).map(c => {
+                const sevClass = c.severity === "high" ? "high" : c.severity === "medium" ? "medium" : "low-sev";
+                // Short label from type
+                const labels = {
+                    "regime_vs_tendency": "REGIME/TENDENCY",
+                    "regime_vs_setup": "REGIME/SETUP",
+                    "setup_vs_regime_direction": "SETUP DIR",
+                    "indicator_conflict": "INDICATORS",
+                    "conviction_mismatch": "CONVICTION",
+                    "alert_overload": "ALERT OVERLOAD",
+                    "alert_vs_regime": "ALERTS/REGIME",
+                    "compression_in_trend": "COMPRESSION",
+                    "timeframe_hierarchy": "TF HIERARCHY",
+                };
+                const lbl = labels[c.type] || c.type.toUpperCase();
+                return `<span class="meta-conflict-pill ${sevClass}" title="${c.description}">${lbl}</span>`;
+            }).join("");
+        } else {
+            conflictsEl.innerHTML = '<span class="meta-conflict-pill low-sev">NO CONFLICTS</span>';
+        }
+
+        // Fatigue warning
+        const fatigue = d.regime_fatigue || {};
+        if (fatigue.is_fatigued) {
+            fatigueEl.style.display = "flex";
+            fatigueEl.innerHTML = `⏱ REGIME FATIGUE — ${fatigue.duration_readings} readings` +
+                (fatigue.likely_next ? ` → likely ${fatigue.likely_next.toUpperCase()} (${Math.round(fatigue.transition_prob)}%)` : "");
+        } else {
+            fatigueEl.style.display = "none";
+        }
+    }
+
     // Start interpreter polling (every 10s — heavier endpoint)
     function initInterpreter() {
         fetchInterpretation();
+        fetchMetaAnalysis();
         interpTimer = setInterval(fetchInterpretation, 10000);
+        setInterval(fetchMetaAnalysis, 15000);  // meta every 15s
     }
 
     // ── Click-to-Explain System ─────────────────────────────────────
