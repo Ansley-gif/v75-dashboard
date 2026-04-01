@@ -266,6 +266,18 @@ def init_db():
         )
     """)
 
+    # Scheduled reports — tracks when reports were last sent
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS agent_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            report_type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            sent_telegram INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     conn.commit()
     conn.close()
     log.info("Database initialized")
@@ -5308,7 +5320,7 @@ def _detect_drift_and_observe():
 
 
 def agent_memory_loop():
-    """Background thread: updates baselines and generates observations."""
+    """Background thread: updates baselines, observations, and scheduled reports."""
     time.sleep(60)  # Wait for data to accumulate
     while True:
         try:
@@ -5319,10 +5331,420 @@ def agent_memory_loop():
             # Generate observations
             _detect_drift_and_observe()
 
+            # Check if any scheduled reports are due
+            _check_and_send_reports()
+
         except Exception as e:
             log.error(f"Agent memory loop error: {e}")
 
         time.sleep(21600)  # Every 6 hours
+
+
+# ---------------------------------------------------------------------------
+# Scheduled Report System — 3/7/14/30 Day Automated Monitoring
+# ---------------------------------------------------------------------------
+
+REPORT_SCHEDULES = {
+    "3day":  3 * 86400,
+    "7day":  7 * 86400,
+    "14day": 14 * 86400,
+    "30day": 30 * 86400,
+}
+
+
+def _last_report_time(report_type):
+    """Get timestamp of last report of this type."""
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT timestamp FROM agent_reports WHERE report_type=? ORDER BY timestamp DESC LIMIT 1",
+            (report_type,)
+        ).fetchone()
+        conn.close()
+        return row["timestamp"] if row else 0
+    except Exception:
+        return 0
+
+
+def _store_report(report_type, content, sent=False):
+    """Store a generated report."""
+    try:
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO agent_reports (timestamp, report_type, content, sent_telegram) VALUES (?, ?, ?, ?)",
+            (int(time.time()), report_type, content, 1 if sent else 0)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning(f"Failed to store report: {e}")
+
+
+def _send_telegram_long(text):
+    """Send a long message via Telegram, splitting into chunks if needed."""
+    if not TELEGRAM_ENABLED:
+        return
+    # Telegram max is 4096 chars
+    chunks = []
+    while len(text) > 4000:
+        split_at = text.rfind("\n", 0, 4000)
+        if split_at == -1:
+            split_at = 4000
+        chunks.append(text[:split_at])
+        text = text[split_at:].lstrip()
+    chunks.append(text)
+
+    for chunk in chunks:
+        def _do_send(msg=chunk):
+            try:
+                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                payload = urllib.parse.urlencode({
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "text": msg,
+                    "parse_mode": "Markdown",
+                }).encode()
+                req = urllib.request.Request(url, data=payload, method="POST")
+                urllib.request.urlopen(req, timeout=15)
+            except Exception as e:
+                log.warning(f"Telegram report send failed: {e}")
+        _do_send()
+        time.sleep(1)  # Rate limit between chunks
+
+
+def _generate_3day_report():
+    """3-Day Report: Immediate bugs, signal conflicts, performance issues."""
+    now = int(time.time())
+    three_days_ago = now - 3 * 86400
+    parts = ["\U0001F4CA *V75 DASHBOARD — 3-DAY REPORT*\n"]
+
+    try:
+        conn = get_db()
+
+        # Signal conflicts summary
+        parts.append("*SIGNAL CONFLICTS*")
+        global _latest_meta_analysis
+        if _latest_meta_analysis:
+            score = _latest_meta_analysis.get("alignment_score", "?")
+            label = _latest_meta_analysis.get("alignment_label", "?")
+            parts.append(f"Current alignment: {score}/100 ({label})")
+            conflicts = _latest_meta_analysis.get("conflicts", [])
+            if conflicts:
+                parts.append(f"{len(conflicts)} active conflict(s):")
+                for c in conflicts[:5]:
+                    parts.append(f"  \u26a0 {c['description'][:120]}")
+            else:
+                parts.append("No active conflicts — panels are aligned.")
+        else:
+            parts.append("Meta-analysis not yet available.")
+
+        # Alert activity
+        parts.append("\n*ALERT ACTIVITY (3 days)*")
+        alert_rows = conn.execute(
+            "SELECT alert_type, COUNT(*) as cnt FROM alerts WHERE timestamp > ? GROUP BY alert_type ORDER BY cnt DESC",
+            (three_days_ago,)
+        ).fetchall()
+        total_alerts = sum(r["cnt"] for r in alert_rows)
+        parts.append(f"Total alerts: {total_alerts}")
+        for r in alert_rows:
+            parts.append(f"  {r['alert_type']}: {r['cnt']}")
+
+        # Regime shifts
+        shifts = conn.execute(
+            "SELECT COUNT(*) FROM alerts WHERE alert_type='regime_shift' AND timestamp > ?",
+            (three_days_ago,)
+        ).fetchone()[0]
+        if shifts >= 10:
+            parts.append(f"\n\u26a0 *HIGH INSTABILITY*: {shifts} regime shifts in 3 days")
+        elif shifts >= 5:
+            parts.append(f"\n\u26a1 Moderate instability: {shifts} regime shifts")
+
+        # Observations
+        obs = conn.execute(
+            "SELECT category, observation FROM agent_observations WHERE timestamp > ? ORDER BY relevance_score DESC LIMIT 5",
+            (three_days_ago,)
+        ).fetchall()
+        if obs:
+            parts.append("\n*AGENT OBSERVATIONS*")
+            for o in obs:
+                parts.append(f"  \u2022 [{o['category']}] {o['observation'][:150]}")
+
+        # Recent trade performance
+        trades = conn.execute(
+            "SELECT result, COUNT(*) as cnt FROM trade_log WHERE entry_time > ? GROUP BY result",
+            (three_days_ago,)
+        ).fetchall()
+        if trades:
+            parts.append("\n*TRADE PERFORMANCE (3 days)*")
+            for t in trades:
+                parts.append(f"  {t['result']}: {t['cnt']}")
+
+        conn.close()
+    except Exception as e:
+        parts.append(f"\nError generating report: {e}")
+
+    return "\n".join(parts)
+
+
+def _generate_7day_report():
+    """7-Day Report: Pattern recognition, baseline drift, setup analysis."""
+    now = int(time.time())
+    week_ago = now - 7 * 86400
+    parts = ["\U0001F4C8 *V75 DASHBOARD — 7-DAY REPORT*\n"]
+
+    try:
+        conn = get_db()
+
+        # Regime distribution
+        parts.append("*REGIME DISTRIBUTION (7 days)*")
+        regimes = conn.execute(
+            "SELECT regime, COUNT(*) as cnt FROM regime_history WHERE timeframe='1h' AND timestamp > ? GROUP BY regime ORDER BY cnt DESC",
+            (week_ago,)
+        ).fetchall()
+        total = sum(r["cnt"] for r in regimes) or 1
+        for r in regimes:
+            pct = (r["cnt"] / total) * 100
+            bar = "\u2588" * int(pct / 5)
+            parts.append(f"  {r['regime']:12s} {bar} {pct:.0f}%")
+
+        # Baseline comparison
+        parts.append("\n*INDICATOR BASELINES (1H)*")
+        baseline = _get_baselines("1h")
+        if baseline:
+            parts.append(f"  Avg ADX: {baseline.get('avg_adx', 0):.1f}")
+            parts.append(f"  Avg Hurst: {baseline.get('avg_hurst', 0):.3f}")
+            parts.append(f"  Avg ATR Ratio: {baseline.get('avg_atr_ratio', 0):.2f}")
+            parts.append(f"  Avg Autocorr: {baseline.get('avg_autocorr', 0):.3f}")
+            parts.append(f"  Samples: {baseline.get('sample_count', 0)}")
+
+        # Alert patterns
+        parts.append("\n*ALERT PATTERNS*")
+        alert_types = conn.execute(
+            "SELECT alert_type, COUNT(*) as cnt FROM alerts WHERE timestamp > ? GROUP BY alert_type ORDER BY cnt DESC",
+            (week_ago,)
+        ).fetchall()
+        for a in alert_types:
+            parts.append(f"  {a['alert_type']}: {a['cnt']}")
+        if any(a["cnt"] >= 20 for a in alert_types):
+            heavy = [a for a in alert_types if a["cnt"] >= 20]
+            parts.append(f"\n\u26a0 *ALERT SPAM*: {', '.join(a['alert_type'] for a in heavy)} firing excessively — review thresholds")
+
+        # Setup success (if trades logged)
+        trades = conn.execute(
+            "SELECT setup_type, result, COUNT(*) as cnt FROM trade_log WHERE entry_time > ? AND setup_type != '' GROUP BY setup_type, result",
+            (week_ago,)
+        ).fetchall()
+        if trades:
+            parts.append("\n*SETUP PERFORMANCE*")
+            setup_stats = {}
+            for t in trades:
+                st = t["setup_type"]
+                if st not in setup_stats:
+                    setup_stats[st] = {"win": 0, "loss": 0}
+                if t["result"] == "win":
+                    setup_stats[st]["win"] += t["cnt"]
+                else:
+                    setup_stats[st]["loss"] += t["cnt"]
+            for st, stats in setup_stats.items():
+                total = stats["win"] + stats["loss"]
+                wr = (stats["win"] / total * 100) if total > 0 else 0
+                parts.append(f"  {st}: {wr:.0f}% WR ({total} trades)")
+
+        # Trade lessons
+        lessons = _get_trade_lessons(5)
+        if lessons:
+            parts.append("\n*TRADE LESSONS*")
+            for l in lessons:
+                parts.append(f"  \u2022 {l['lesson'][:120]}")
+
+        conn.close()
+    except Exception as e:
+        parts.append(f"\nError: {e}")
+
+    return "\n".join(parts)
+
+
+def _generate_14day_report():
+    """14-Day Report: System intelligence, accuracy review, recommendations."""
+    now = int(time.time())
+    two_weeks_ago = now - 14 * 86400
+    parts = ["\U0001F9E0 *V75 DASHBOARD — 14-DAY INTELLIGENCE REPORT*\n"]
+
+    try:
+        conn = get_db()
+
+        # Overall trading stats
+        trades = conn.execute(
+            "SELECT * FROM trade_log WHERE entry_time > ? ORDER BY entry_time ASC",
+            (two_weeks_ago,)
+        ).fetchall()
+        trade_list = [dict(t) for t in trades]
+
+        if trade_list:
+            stats = calc_performance_stats(trade_list)
+            parts.append("*TRADING PERFORMANCE (14 days)*")
+            parts.append(f"  Trades: {len(trade_list)}")
+            parts.append(f"  Win Rate: {stats.get('win_rate', 0):.1f}%")
+            parts.append(f"  Profit Factor: {stats.get('profit_factor', 0):.2f}")
+            parts.append(f"  Expectancy: {stats.get('expectancy_r', 0):.2f}R")
+            parts.append(f"  Max Drawdown: {stats.get('max_drawdown_pct', 0):.1f}%")
+
+            # By regime
+            by_regime = calc_performance_by_regime(trade_list)
+            if by_regime:
+                parts.append("\n*PERFORMANCE BY REGIME*")
+                for regime, rdata in by_regime.items():
+                    if rdata.get("count", 0) >= 2:
+                        parts.append(f"  {regime}: {rdata.get('win_rate', 0):.0f}% WR, {rdata.get('expectancy_r', 0):.2f}R ({rdata['count']} trades)")
+
+        # Regime behavior analysis
+        parts.append("\n*V75 BEHAVIOR ANALYSIS*")
+        regimes = conn.execute(
+            "SELECT regime, COUNT(*) as cnt FROM regime_history WHERE timeframe='1h' AND timestamp > ? GROUP BY regime",
+            (two_weeks_ago,)
+        ).fetchall()
+        total_r = sum(r["cnt"] for r in regimes) or 1
+
+        regime_pcts = {r["regime"]: r["cnt"] / total_r * 100 for r in regimes}
+        dominant = max(regime_pcts, key=regime_pcts.get) if regime_pcts else "unknown"
+        parts.append(f"  Dominant regime: {dominant.upper()} ({regime_pcts.get(dominant, 0):.0f}%)")
+
+        # Recommendations
+        parts.append("\n*RECOMMENDATIONS*")
+        if regime_pcts.get("choppy", 0) > 30:
+            parts.append("  \u26a0 V75 has been choppy >30% of the time — be selective with entries")
+        if trade_list:
+            if stats.get("expectancy_r", 0) < 0:
+                parts.append("  \u26a0 Negative expectancy — review your entry criteria and regime filters")
+            if stats.get("win_rate", 0) < 40:
+                parts.append("  \u26a0 Win rate below 40% — consider tighter setup filters (composite > 60)")
+
+        # Agent observations summary
+        obs = conn.execute(
+            "SELECT category, COUNT(*) as cnt FROM agent_observations WHERE timestamp > ? GROUP BY category ORDER BY cnt DESC",
+            (two_weeks_ago,)
+        ).fetchall()
+        if obs:
+            parts.append("\n*AGENT OBSERVATION CATEGORIES*")
+            for o in obs:
+                parts.append(f"  {o['category']}: {o['cnt']} observations")
+
+        conn.close()
+    except Exception as e:
+        parts.append(f"\nError: {e}")
+
+    return "\n".join(parts)
+
+
+def _generate_30day_report():
+    """30-Day Report: Strategic evolution, algo behavior changes, architecture."""
+    now = int(time.time())
+    month_ago = now - 30 * 86400
+    parts = ["\U0001F3AF *V75 DASHBOARD — 30-DAY STRATEGIC REPORT*\n"]
+
+    try:
+        conn = get_db()
+
+        # Month-over-month comparison
+        parts.append("*V75 ALGORITHM BEHAVIOR (30 days)*")
+
+        # Compare first half vs second half baselines
+        mid = now - 15 * 86400
+        first_half = conn.execute(
+            "SELECT AVG(adx) as adx, AVG(hurst) as hurst, AVG(atr_ratio) as atr, AVG(autocorrelation) as ac "
+            "FROM regime_history WHERE timeframe='1h' AND timestamp BETWEEN ? AND ?",
+            (month_ago, mid)
+        ).fetchone()
+        second_half = conn.execute(
+            "SELECT AVG(adx) as adx, AVG(hurst) as hurst, AVG(atr_ratio) as atr, AVG(autocorrelation) as ac "
+            "FROM regime_history WHERE timeframe='1h' AND timestamp BETWEEN ? AND ?",
+            (mid, now)
+        ).fetchone()
+
+        if first_half and second_half and first_half["adx"] and second_half["adx"]:
+            parts.append("  First 15d → Last 15d comparison:")
+            adx_d = (second_half["adx"] or 0) - (first_half["adx"] or 0)
+            hurst_d = (second_half["hurst"] or 0) - (first_half["hurst"] or 0)
+            atr_d = (second_half["atr"] or 0) - (first_half["atr"] or 0)
+            parts.append(f"  ADX: {'+' if adx_d > 0 else ''}{adx_d:.1f} {'(trending more)' if adx_d > 3 else '(trending less)' if adx_d < -3 else '(stable)'}")
+            parts.append(f"  Hurst: {'+' if hurst_d > 0 else ''}{hurst_d:.3f} {'(more persistent)' if hurst_d > 0.03 else '(more mean-reverting)' if hurst_d < -0.03 else '(stable)'}")
+            parts.append(f"  ATR Ratio: {'+' if atr_d > 0 else ''}{atr_d:.2f} {'(more volatile)' if atr_d > 0.15 else '(less volatile)' if atr_d < -0.15 else '(stable)'}")
+
+            if abs(hurst_d) > 0.05 or abs(adx_d) > 5:
+                parts.append("\n  \u26a0 *SIGNIFICANT ALGO SHIFT DETECTED*")
+                parts.append("  V75 behavior has materially changed in the second half of the month.")
+
+        # Regime transitions
+        parts.append("\n*REGIME TRANSITION MAP*")
+        all_regimes = conn.execute(
+            "SELECT regime FROM regime_history WHERE timeframe='1h' AND timestamp > ? ORDER BY timestamp ASC",
+            (month_ago,)
+        ).fetchall()
+        if len(all_regimes) > 20:
+            transitions = {}
+            prev = all_regimes[0]["regime"]
+            for r in all_regimes[1:]:
+                curr = r["regime"]
+                if curr != prev:
+                    key = f"{prev} \u2192 {curr}"
+                    transitions[key] = transitions.get(key, 0) + 1
+                    prev = curr
+            for t, cnt in sorted(transitions.items(), key=lambda x: x[1], reverse=True)[:8]:
+                parts.append(f"  {t}: {cnt}x")
+
+        # Full performance
+        trades = conn.execute(
+            "SELECT * FROM trade_log WHERE entry_time > ? ORDER BY entry_time ASC",
+            (month_ago,)
+        ).fetchall()
+        if trades:
+            stats = calc_performance_stats([dict(t) for t in trades])
+            parts.append(f"\n*MONTHLY PERFORMANCE*")
+            parts.append(f"  Trades: {len(trades)}")
+            parts.append(f"  Win Rate: {stats.get('win_rate', 0):.1f}%")
+            parts.append(f"  Profit Factor: {stats.get('profit_factor', 0):.2f}")
+            parts.append(f"  Expectancy: {stats.get('expectancy_r', 0):.2f}R")
+
+        # Report count
+        report_count = conn.execute(
+            "SELECT COUNT(*) FROM agent_reports WHERE timestamp > ?",
+            (month_ago,)
+        ).fetchone()[0]
+        parts.append(f"\n*SYSTEM HEALTH*")
+        parts.append(f"  Reports generated this month: {report_count}")
+        parts.append(f"  Dashboard uptime: Monitoring active")
+
+        conn.close()
+    except Exception as e:
+        parts.append(f"\nError: {e}")
+
+    return "\n".join(parts)
+
+
+def _check_and_send_reports():
+    """Check if any scheduled reports are due and send them."""
+    now = int(time.time())
+
+    report_generators = {
+        "3day": _generate_3day_report,
+        "7day": _generate_7day_report,
+        "14day": _generate_14day_report,
+        "30day": _generate_30day_report,
+    }
+
+    for rtype, interval in REPORT_SCHEDULES.items():
+        last_sent = _last_report_time(rtype)
+        if now - last_sent >= interval:
+            try:
+                log.info(f"Generating {rtype} report...")
+                content = report_generators[rtype]()
+                _store_report(rtype, content, sent=TELEGRAM_ENABLED)
+                if TELEGRAM_ENABLED:
+                    _send_telegram_long(content)
+                    log.info(f"{rtype} report sent to Telegram")
+                else:
+                    log.info(f"{rtype} report generated (Telegram not configured)")
+            except Exception as e:
+                log.error(f"Report generation error ({rtype}): {e}")
 
 
 # ---------------------------------------------------------------------------
