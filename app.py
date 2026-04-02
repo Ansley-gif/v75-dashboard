@@ -72,6 +72,43 @@ REGIME_CONFIG = {
     "adx_period": 14,
 }
 
+# V75-specific meta-analysis configuration
+# V75 is an algorithmic synthetic index — traditional market thresholds don't apply
+V75_META_CONFIG = {
+    # ADX: V75 routinely produces ADX 100-400+. Traditional "25 = trending" is meaningless here.
+    "adx_strong_trend": 200,
+    "adx_extreme": 500,           # Above this = possible anomaly
+    "adx_normal_range": (50, 400),
+
+    # Hurst is still valid but V75 skews higher
+    "hurst_trend": 0.58,
+    "hurst_mr": 0.42,
+
+    # Timeframe roles in hierarchical analysis
+    "tf_roles": {
+        "1h": "bias",        # Directional truth
+        "15m": "structure",  # Confirms or leads bias
+        "5m": "timing",      # Entry signals (may disagree temporarily — normal)
+        "1m": "execution",   # Noise level — never use for conflict detection
+    },
+
+    # Additive alignment scoring weights (must sum to 100)
+    "weights": {
+        "tendency_accuracy": 35,
+        "tf_hierarchy": 25,
+        "regime_confidence": 20,
+        "setup_alignment": 15,
+        "alert_health": 5,
+    },
+
+    # Spike pattern tracking
+    "spike_config": {
+        "min_compressions_for_spike": 2,
+        "spike_probability_base": 0.30,
+        "spike_probability_per_compression": 0.15,
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -3358,9 +3395,10 @@ def api_telegram_test():
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# META-ANALYSIS ENGINE
+# META-ANALYSIS ENGINE (V75-SPECIFIC)
 # ---------------------------------------------------------------------------
-# System-level pattern recognition that connects the dots across all panels.
+# Rebuilt for V75's algorithmic behavior. Uses additive scoring — earns
+# alignment points from positive signals instead of deducting from 100.
 # Detects signal conflicts, alert clustering, regime fatigue, and produces
 # a unified System Alignment Score (0-100).
 # ---------------------------------------------------------------------------
@@ -3370,17 +3408,19 @@ _regime_run_tracker = {}  # {timeframe: {"regime": str, "count": int, "started":
 
 def run_meta_analysis(regime_data, tendency_summary, setups_data, metrics_data, timeframe="1h"):
     """
-    Master meta-analysis function. Cross-checks all panels and returns:
-      - alignment_score: 0-100 (how much do all panels agree?)
-      - conflicts: list of detected signal conflicts
-      - regime_fatigue: dict with fatigue status
-      - alert_intelligence: dict with clustering/echo data
-      - meta_warnings: list of system-level warnings
-      - meta_narrative: plain-English summary of system state
+    V75-specific meta-analysis engine.  Uses ADDITIVE scoring — starts at 0
+    and earns alignment points from positive signals.  Only flags conflicts
+    that represent genuine structural breakdowns, not normal V75 behavior.
+
+    Returns: alignment_score, conflicts, opportunities, spike_tracking,
+             tf_alignment, regime_fatigue, alert_intelligence, meta_warnings,
+             meta_narrative.
     """
+    cfg = V75_META_CONFIG
+    weights = cfg["weights"]
     conflicts = []
+    opportunities = []
     meta_warnings = []
-    alignment_points = 100  # Start at 100, deduct for conflicts
 
     regime = regime_data.get("regime", "unknown")
     sub_regime = regime_data.get("sub_regime", "unknown")
@@ -3391,197 +3431,221 @@ def run_meta_analysis(regime_data, tendency_summary, setups_data, metrics_data, 
     atr_ratio = metrics.get("atr_ratio", 1.0) or 1.0
     autocorr = metrics.get("autocorrelation", 0) or 0
 
+    # --- Tendency data (uses real field names from calc_current_tendency_summary) ---
     tendency_bias = "neutral"
     tendency_strength = 0
-    tendency_quality = "low"
+    tendency_quality = 0
     if tendency_summary:
-        tendency_bias = tendency_summary.get("bias", "neutral")
-        tendency_strength = tendency_summary.get("strength", 0)
-        tendency_quality = tendency_summary.get("quality", "low")
+        tendency_bias = tendency_summary.get("tendency", "neutral")
+        tendency_strength = tendency_summary.get("tendency_strength", 0)  # 0-1 ratio
+        tendency_quality = tendency_summary.get("window_quality", 0)
 
+    # --- Setup data ---
     setup_list = []
-    if setups_data and isinstance(setups_data, dict):
+    if setups_data and isinstance(setups_data, list):
+        setup_list = setups_data
+    elif setups_data and isinstance(setups_data, dict):
         setup_list = setups_data.get("setups", []) or []
 
     # =================================================================
-    # 1. SIGNAL CONFLICT DETECTION
+    # 1. TENDENCY ENGINE ACCURACY (up to 35 pts)
     # =================================================================
-
-    # 1a. Regime vs Tendency direction conflict
-    if regime == "trending":
-        if sub_regime == "trending_up" and tendency_bias == "bearish" and tendency_strength > 40:
-            conflicts.append({
-                "type": "regime_vs_tendency",
-                "severity": "high",
-                "description": f"Regime says TRENDING UP but tendency is BEARISH ({tendency_strength:.0f}% strength). These directly contradict.",
-                "resolution": "Tendency may be leading — regime could be about to shift. Reduce position size or wait."
-            })
-            alignment_points -= 25
-        elif sub_regime == "trending_down" and tendency_bias == "bullish" and tendency_strength > 40:
-            conflicts.append({
-                "type": "regime_vs_tendency",
-                "severity": "high",
-                "description": f"Regime says TRENDING DOWN but tendency is BULLISH ({tendency_strength:.0f}% strength). Direct contradiction.",
-                "resolution": "Tendency may be leading — regime could be about to shift. Reduce position size or wait."
-            })
-            alignment_points -= 25
-
-    # 1b. Regime vs Setup type conflict (e.g., mean reversion in trending)
-    for s in setup_list:
-        stype = s.get("type", "")
-        stag = s.get("regime_tag", "")
-        sdir = s.get("direction", "")
-
-        if stag == "CAUTION":
-            conflicts.append({
-                "type": "regime_vs_setup",
-                "severity": "medium",
-                "description": f"Setup '{stype}' ({sdir}) has CAUTION tag — regime works against it.",
-                "resolution": f"Skip this {stype} or take it at half size."
-            })
-            alignment_points -= 10
-
-        # Setup direction vs regime direction
-        if regime == "trending" and sub_regime == "trending_up" and sdir == "bearish":
-            conflicts.append({
-                "type": "setup_vs_regime_direction",
-                "severity": "medium",
-                "description": f"Bearish {stype} setup in a trending UP regime.",
-                "resolution": "Counter-trend trade — only valid if you're fading exhaustion, not as a primary play."
-            })
-            alignment_points -= 8
-        elif regime == "trending" and sub_regime == "trending_down" and sdir == "bullish":
-            conflicts.append({
-                "type": "setup_vs_regime_direction",
-                "severity": "medium",
-                "description": f"Bullish {stype} setup in a trending DOWN regime.",
-                "resolution": "Counter-trend trade — high risk unless regime is fatigued."
-            })
-            alignment_points -= 8
-
-    # 1c. Indicator internal conflicts
-    # ADX says trend but Hurst says random/mean-reverting
-    if adx > 25 and hurst < 0.48:
-        conflicts.append({
-            "type": "indicator_conflict",
-            "severity": "high",
-            "description": f"ADX ({adx:.1f}) says trend is real, but Hurst ({hurst:.3f}) says market is {'mean-reverting' if hurst < 0.45 else 'random walk'}. They disagree.",
-            "resolution": "Hurst is the deeper metric — ADX may be reading volatility expansion as trend. Treat with caution."
-        })
-        alignment_points -= 20
-
-    # High ADX but near-zero autocorrelation = false trend
-    if adx > 25 and abs(autocorr) < 0.1:
-        conflicts.append({
-            "type": "indicator_conflict",
-            "severity": "high",
-            "description": f"ADX ({adx:.1f}) shows trend strength but Autocorrelation ({autocorr:.3f}) says bars are independent. This is likely volatility expansion, not directional trend.",
-            "resolution": "Don't trend-follow. This is choppy volatility masquerading as a trend."
-        })
-        alignment_points -= 20
-
-    # 1d. Conviction vs Classification mismatch
-    if confidence >= 70 and len(setup_list) == 0 and regime in ("trending", "ranging"):
-        conflicts.append({
-            "type": "conviction_mismatch",
-            "severity": "medium",
-            "description": f"Regime classified as {regime.upper()} with {confidence:.0f}% confidence, but ZERO setups detected. If classification is right, where are the setups?",
-            "resolution": "Regime may be misclassifying or in late-stage transition. Wait for setups to confirm."
-        })
-        alignment_points -= 12
+    tendency_points = 0
+    if tendency_bias != "neutral":
+        # Strength contributes up to 20 pts (strength is 0-1)
+        tendency_points += min(20, tendency_strength * 25)
+        # Quality contributes up to 10 pts (quality is 0-1)
+        tendency_points += min(10, tendency_quality * 12)
+        # Bonus: tendency aligns with regime direction
+        regime_dir = "bullish" if "up" in sub_regime else "bearish" if "down" in sub_regime else "neutral"
+        if tendency_bias == regime_dir:
+            tendency_points += 5  # Agreement bonus
+    tendency_points = min(weights["tendency_accuracy"], tendency_points)
 
     # =================================================================
-    # 2. ALERT INTELLIGENCE (Clustering, Echo, Density)
+    # 2. TIMEFRAME HIERARCHY (up to 25 pts)
     # =================================================================
-    alert_intel = _analyze_alert_intelligence(timeframe)
-    if alert_intel["density_score"] > 6:
-        conflicts.append({
-            "type": "alert_overload",
-            "severity": "high",
-            "description": f"Alert density is extreme ({alert_intel['density_score']}/10) — {alert_intel['total_recent']} alerts in 4 hours. The algorithm is confused.",
-            "resolution": "Step back. High alert density = market indecision. Wait for clarity."
-        })
-        alignment_points -= 15
+    tf_alignment, tf_warnings = _check_timeframe_hierarchy_v75(regime, sub_regime)
+    tf_points = tf_alignment.get("alignment_points", 0)
+    tf_points = min(weights["tf_hierarchy"], tf_points)
+    for w in tf_warnings:
+        meta_warnings.append(w)
 
+    # =================================================================
+    # 3. REGIME CONFIDENCE (up to 20 pts)
+    # =================================================================
+    regime_points = 0
+    if regime != "unknown":
+        regime_points = min(weights["regime_confidence"], confidence * 0.25)
+        # V75-calibrated indicator checks — only flag EXTREME anomalies
+        if adx > cfg["adx_extreme"]:
+            meta_warnings.append(f"ADX anomaly ({adx:.0f}) — above V75's normal range. Possible data issue or unprecedented move.")
+            regime_points = max(0, regime_points - 5)
+        if adx > cfg["adx_strong_trend"] and hurst < cfg["hurst_mr"]:
+            conflicts.append({
+                "type": "indicator_divergence",
+                "severity": "medium",
+                "description": f"ADX ({adx:.0f}) shows strong trend but Hurst ({hurst:.3f}) says mean-reverting. Unusual even for V75.",
+                "resolution": "This specific combination is rare in V75. Reduce size until indicators realign."
+            })
+            regime_points = max(0, regime_points - 5)
+
+    # =================================================================
+    # 4. SETUP ALIGNMENT (up to 15 pts)
+    # =================================================================
+    setup_points = 0
+    if setup_list:
+        regime_dir = "bullish" if "up" in sub_regime else "bearish" if "down" in sub_regime else "neutral"
+        for s in setup_list:
+            stype = s.get("type", "")
+            sdir = s.get("direction", "")
+            stag = s.get("regime_tag", "")
+
+            if sdir == regime_dir or sdir == tendency_bias:
+                # Setup aligns with bias — earn points
+                setup_points += 5
+            elif regime_dir != "neutral" and sdir and sdir != regime_dir:
+                # Opposite direction setup = FADE opportunity, not a conflict
+                opportunities.append({
+                    "type": "fade_opportunity",
+                    "severity": "info",
+                    "description": f"{sdir.upper()} {stype} during {sub_regime.upper()} regime — potential FADE entry.",
+                    "resolution": f"Use this {stype} as a counter-trend entry if regime shows fatigue. Tight stops."
+                })
+            if stag == "CAUTION" and tendency_bias == "neutral" and confidence < 50:
+                # Only flag CAUTION setups when there's no clear read at all
+                conflicts.append({
+                    "type": "low_conviction_setup",
+                    "severity": "low",
+                    "description": f"Setup '{stype}' has CAUTION tag with no clear tendency and low regime confidence.",
+                    "resolution": f"Skip or paper trade this {stype}."
+                })
+    elif regime in ("trending",) and confidence >= 80 and tendency_bias != "neutral":
+        # Strong regime + clear tendency but no setups — V75 can trend without traditional setups
+        meta_warnings.append("No setups detected despite strong trend. V75 can trend without pullbacks — watch for entry on micro-TF.")
+    setup_points = min(weights["setup_alignment"], setup_points)
+
+    # =================================================================
+    # 5. ALERT HEALTH (up to 5 pts)
+    # =================================================================
+    alert_intel = _analyze_alert_intelligence_v75(timeframe, regime)
+    alert_points = weights["alert_health"]  # Start at max, deduct for noise
+    if alert_intel["density_score"] >= 8:
+        alert_points = max(0, alert_points - 3)
+        meta_warnings.append(f"High alert density ({alert_intel['total_recent']} in 4h) — V75 algo is active. Normal during trending.")
     if alert_intel["echo_detected"]:
+        alert_points = max(0, alert_points - 2)
         for echo in alert_intel["echoes"]:
-            meta_warnings.append(f"Alert echo: '{echo['type']}' fired {echo['count']}x in 4h — signal degradation, not confirmation")
-        alignment_points -= 8
-
-    # Counter-trend alerts during trending regime
-    if regime == "trending" and alert_intel.get("counter_trend_alerts", 0) >= 2:
-        conflicts.append({
-            "type": "alert_vs_regime",
-            "severity": "high",
-            "description": f"{alert_intel['counter_trend_alerts']} counter-trend alerts firing during {regime.upper()} regime. Market is fighting the classification.",
-            "resolution": "Regime classification may be unreliable. The alerts are telling you what the regime classifier isn't."
-        })
-        alignment_points -= 18
-
-    # Compression alerts during trending = consolidation building
-    if regime == "trending" and alert_intel.get("compression_count", 0) >= 2:
-        conflicts.append({
-            "type": "compression_in_trend",
-            "severity": "high",
-            "description": f"{alert_intel['compression_count']} compression alerts during TRENDING regime. Market is consolidating despite trend classification.",
-            "resolution": "Trend may be exhausting. These compressions suggest a regime transition is building."
-        })
-        alignment_points -= 15
+            meta_warnings.append(f"Alert echo: '{echo['type']}' fired {echo['count']}x in 4h")
 
     # =================================================================
-    # 3. REGIME FATIGUE DETECTION
+    # 6. SPIKE PATTERN TRACKING
+    # =================================================================
+    spike_tracking = _track_spike_patterns(alert_intel, regime, atr_ratio)
+    if spike_tracking["spike_probable"]:
+        opportunities.append({
+            "type": "spike_setup",
+            "severity": "info",
+            "description": f"Spike probability {spike_tracking['probability']:.0%} — {spike_tracking['compression_count']} compressions detected.",
+            "resolution": "Watch for volatility expansion. Set alerts for breakout entries."
+        })
+
+    # =================================================================
+    # 7. REGIME FATIGUE
     # =================================================================
     fatigue = _check_regime_fatigue(regime, timeframe)
     if fatigue["is_fatigued"]:
         meta_warnings.append(
-            f"Regime fatigue: {regime.upper()} has been active for {fatigue['duration_readings']} consecutive readings "
-            f"(avg duration: {fatigue['avg_duration']:.0f}). Transition probability is elevated."
+            f"Regime fatigue: {regime.upper()} active for {fatigue['duration_readings']} readings "
+            f"(avg: {fatigue['avg_duration']:.0f}). Transition probability elevated."
         )
-        alignment_points -= 12
         if fatigue["likely_next"]:
-            meta_warnings.append(f"Most likely next regime: {fatigue['likely_next'].upper()} ({fatigue['transition_prob']:.0f}%)")
+            meta_warnings.append(f"Likely next regime: {fatigue['likely_next'].upper()} ({fatigue['transition_prob']:.0f}%)")
 
     # =================================================================
-    # 4. TIMEFRAME HIERARCHY CHECK
+    # 8. REAL CONFLICT DETECTION (only genuine structural issues)
     # =================================================================
-    tf_conflict = _check_timeframe_hierarchy()
-    if tf_conflict:
-        for tfc in tf_conflict:
-            conflicts.append(tfc)
-            alignment_points -= 8
+    # Tendency prediction failure: tendency has clear read but regime totally disagrees
+    # AND tendency strength is very high — this is a real structural divergence
+    if tendency_strength > 0.7:
+        regime_dir = "bullish" if "up" in sub_regime else "bearish" if "down" in sub_regime else "neutral"
+        if regime_dir != "neutral" and tendency_bias != "neutral" and tendency_bias != regime_dir:
+            conflicts.append({
+                "type": "tendency_vs_regime",
+                "severity": "high",
+                "description": f"Strong tendency ({tendency_bias.upper()}, {tendency_strength:.0%}) opposes regime ({sub_regime.upper()}). One will break.",
+                "resolution": "Tendency often leads regime shifts. Watch for regime transition confirmation on 15M."
+            })
+            tendency_points = max(0, tendency_points - 10)
+
+    # Structure breakdown: 15M (structure) contradicts 1H (bias) — from tf_alignment
+    if tf_alignment.get("structure_breakdown"):
+        conflicts.append({
+            "type": "structure_breakdown",
+            "severity": "high",
+            "description": tf_alignment["structure_breakdown"],
+            "resolution": "The structure supporting the 1H bias is failing. Reduce size or wait for realignment."
+        })
+        tf_points = max(0, tf_points - 10)
 
     # =================================================================
-    # 5. COMPUTE FINAL ALIGNMENT SCORE
+    # 9. COMPUTE FINAL ALIGNMENT SCORE
     # =================================================================
-    alignment_score = max(0, min(100, alignment_points))
+    alignment_score = int(min(100, tendency_points + tf_points + regime_points + setup_points + alert_points))
+    alignment_score = max(0, alignment_score)
 
-    # Build narrative
-    if alignment_score >= 80:
-        meta_narrative = "System alignment is HIGH — all panels broadly agree. Signals can be trusted at face value."
-    elif alignment_score >= 60:
-        meta_narrative = "System alignment is MODERATE — some conflicts detected. Trade with reduced conviction."
-    elif alignment_score >= 40:
-        meta_narrative = "System alignment is LOW — significant contradictions between panels. Consider sitting out or drastically reducing size."
+    if alignment_score >= 75:
+        label = "HIGH"
+    elif alignment_score >= 50:
+        label = "MODERATE"
+    elif alignment_score >= 30:
+        label = "LOW"
     else:
-        meta_narrative = "System alignment is CRITICAL — panels are heavily contradicting each other. The dashboard's signals are unreliable right now. DO NOT TRADE based on any single panel."
+        label = "CRITICAL"
+
+    # Build V75-specific narrative
+    if alignment_score >= 75:
+        meta_narrative = "V75 is in a clean state — bias, structure, and tendency agree. Trade your setups with full conviction."
+    elif alignment_score >= 50:
+        meta_narrative = "Structure intact but some divergence detected. Normal V75 behavior — proceed with standard sizing."
+    elif alignment_score >= 30:
+        meta_narrative = "Structure is breaking down against the bias. Reduce size or wait for structure to realign."
+    else:
+        meta_narrative = "All systems disagree. Sit out until clarity returns."
 
     if conflicts:
-        meta_narrative += f" {len(conflicts)} signal conflict(s) detected."
+        meta_narrative += f" {len(conflicts)} conflict(s)."
+    if opportunities:
+        meta_narrative += f" {len(opportunities)} opportunity(s) detected."
 
     return {
         "alignment_score": alignment_score,
-        "alignment_label": "HIGH" if alignment_score >= 80 else "MODERATE" if alignment_score >= 60 else "LOW" if alignment_score >= 40 else "CRITICAL",
+        "alignment_label": label,
         "conflicts": conflicts,
         "conflict_count": len(conflicts),
+        "opportunities": opportunities,
+        "opportunity_count": len(opportunities),
+        "spike_tracking": spike_tracking,
+        "tf_alignment": tf_alignment,
         "regime_fatigue": fatigue,
         "alert_intelligence": alert_intel,
         "meta_warnings": meta_warnings,
         "meta_narrative": meta_narrative,
+        "score_breakdown": {
+            "tendency": round(tendency_points, 1),
+            "tf_hierarchy": round(tf_points, 1),
+            "regime_confidence": round(regime_points, 1),
+            "setup_alignment": round(setup_points, 1),
+            "alert_health": round(alert_points, 1),
+        },
     }
 
 
-def _analyze_alert_intelligence(timeframe="1h"):
-    """Analyze recent alerts for clustering, echoes, and density patterns."""
+def _analyze_alert_intelligence_v75(timeframe="1h", regime="unknown"):
+    """
+    V75-specific alert intelligence.  High alert density during trending
+    is NORMAL for V75 — only flag when alerts actively contradict the regime.
+    """
     result = {
         "total_recent": 0,
         "density_score": 0,
@@ -3590,6 +3654,7 @@ def _analyze_alert_intelligence(timeframe="1h"):
         "counter_trend_alerts": 0,
         "compression_count": 0,
         "by_type": {},
+        "fade_signals": 0,
     }
     try:
         conn = get_db()
@@ -3602,37 +3667,37 @@ def _analyze_alert_intelligence(timeframe="1h"):
 
         result["total_recent"] = len(rows)
 
-        # Count by type
         type_counts = {}
         for r in rows:
             atype = r["alert_type"]
             type_counts[atype] = type_counts.get(atype, 0) + 1
-
         result["by_type"] = type_counts
 
-        # Density score (0-10)
-        if len(rows) >= 15:
+        # V75-calibrated density (higher thresholds — V75 is noisy by nature)
+        if len(rows) >= 30:
             result["density_score"] = 10
-        elif len(rows) >= 10:
+        elif len(rows) >= 20:
             result["density_score"] = 8
-        elif len(rows) >= 7:
+        elif len(rows) >= 12:
             result["density_score"] = 6
-        elif len(rows) >= 4:
+        elif len(rows) >= 6:
             result["density_score"] = 4
         else:
             result["density_score"] = max(0, len(rows))
 
-        # Echo detection: same alert type 3+ times
+        # Echo detection: same alert type 5+ times (raised from 3 for V75)
         for atype, count in type_counts.items():
-            if count >= 3:
+            if count >= 5:
                 result["echo_detected"] = True
                 result["echoes"].append({"type": atype, "count": count})
 
-        # Counter-trend alert counting
+        # Streak exhaustion during trending = fade signals (opportunities, not danger)
         streak_count = type_counts.get("streak_exhaustion", 0)
+        if regime == "trending" and streak_count > 0:
+            result["fade_signals"] = streak_count
         result["counter_trend_alerts"] = streak_count
 
-        # Compression counting
+        # Compression counting (used for spike tracking)
         result["compression_count"] = type_counts.get("compression", 0)
 
     except Exception as e:
@@ -3724,14 +3789,51 @@ def _check_regime_fatigue(current_regime, timeframe="1h"):
     return result
 
 
-def _check_timeframe_hierarchy():
-    """Check if lower timeframe signals contradict higher timeframe regime."""
-    conflicts = []
+def _track_spike_patterns(alert_intel, regime, atr_ratio):
+    """
+    V75 spike probability tracker.  Compression alerts during trending
+    regimes are opportunity signals — V75 builds pressure then spikes.
+    """
+    cfg = V75_META_CONFIG["spike_config"]
+    compression_count = alert_intel.get("compression_count", 0)
+
+    probability = 0
+    if compression_count >= cfg["min_compressions_for_spike"]:
+        probability = min(0.95, cfg["spike_probability_base"] + compression_count * cfg["spike_probability_per_compression"])
+        # ATR compression (low ratio) increases spike probability
+        if atr_ratio < 0.7:
+            probability = min(0.95, probability + 0.10)
+
+    return {
+        "spike_probable": probability >= 0.45,
+        "probability": probability,
+        "compression_count": compression_count,
+        "atr_ratio": atr_ratio,
+        "guidance": (
+            f"Spike building — {probability:.0%} probability ({compression_count} compressions). Watch for breakout."
+            if probability >= 0.45
+            else "No spike pattern detected."
+        ),
+    }
+
+
+def _check_timeframe_hierarchy_v75(bias_regime="unknown", bias_sub="unknown"):
+    """
+    V75-specific role-based TF hierarchy.
+    1H = bias (truth), 15M = structure, 5M = timing, 1M = execution (noise).
+    Only flags when STRUCTURE (15M) breaks against BIAS (1H).
+    """
+    alignment = {
+        "alignment_points": 0,
+        "tf_data": {},
+        "structure_breakdown": None,
+        "structure_leading": None,
+    }
+    warnings = []
     try:
         conn = get_db()
-        # Get latest regime for each timeframe
         tf_regimes = {}
-        for tf in ["1m", "5m", "15m", "1h", "4h"]:
+        for tf in ["1m", "5m", "15m", "1h"]:
             row = conn.execute(
                 "SELECT regime, confidence FROM regime_history WHERE timeframe=? ORDER BY timestamp DESC LIMIT 1",
                 (tf,)
@@ -3740,35 +3842,58 @@ def _check_timeframe_hierarchy():
                 tf_regimes[tf] = {"regime": row["regime"], "confidence": row["confidence"]}
         conn.close()
 
-        # Check higher vs lower TF disagreement
-        higher_tfs = ["4h", "1h"]
-        lower_tfs = ["5m", "1m"]
+        alignment["tf_data"] = tf_regimes
 
-        for htf in higher_tfs:
-            if htf not in tf_regimes:
-                continue
-            h_regime = tf_regimes[htf]["regime"]
+        h1 = tf_regimes.get("1h", {}).get("regime", "unknown")
+        m15 = tf_regimes.get("15m", {}).get("regime", "unknown")
+        m5 = tf_regimes.get("5m", {}).get("regime", "unknown")
+        # 1M is intentionally ignored for conflict detection
 
-            disagreeing_lower = []
-            for ltf in lower_tfs:
-                if ltf not in tf_regimes:
-                    continue
-                l_regime = tf_regimes[ltf]["regime"]
-                if h_regime != l_regime and h_regime in ("trending", "ranging") and l_regime in ("choppy", "expanding"):
-                    disagreeing_lower.append(ltf)
+        # Award points for agreement
+        points = 0
 
-            if len(disagreeing_lower) >= 2:
-                conflicts.append({
-                    "type": "timeframe_hierarchy",
-                    "severity": "medium",
-                    "description": f"{htf.upper()} says {h_regime.upper()} but {', '.join(d.upper() for d in disagreeing_lower)} show {tf_regimes[disagreeing_lower[0]]['regime'].upper()}. Lower timeframes are breaking down.",
-                    "resolution": f"Lower TF chaos during {htf.upper()} {h_regime} = regime may be transitioning. Trust lower TFs for immediate action."
-                })
+        # 1H exists and has a clear read
+        if h1 in ("trending", "ranging"):
+            points += 8
+
+        # 15M (structure) agrees with 1H (bias)
+        if h1 == m15:
+            points += 12  # Full structure alignment
+        elif h1 == "trending" and m15 == "ranging":
+            # Structure is consolidating within trend — normal V75 pullback zone
+            points += 6
+            warnings.append(f"15M ranging within 1H trend — potential pullback/entry zone.")
+        elif h1 == "trending" and m15 in ("choppy", "expanding"):
+            # Structure is breaking — real warning
+            alignment["structure_breakdown"] = (
+                f"15M shows {m15.upper()} while 1H is TRENDING. "
+                f"Market structure supporting the trend is degrading."
+            )
+            points += 0
+        elif h1 != "unknown" and m15 != "unknown" and h1 != m15:
+            # Structure disagrees but not catastrophically
+            warnings.append(f"15M ({m15.upper()}) differs from 1H ({h1.upper()}) — structure may be shifting.")
+            points += 3
+
+        # 5M (timing) — bonus if it agrees, no penalty if it doesn't
+        if m5 == h1:
+            points += 5  # Timing aligns with bias
+
+        # Check if lower TFs are leading a shift
+        if h1 == "trending" and m15 != "trending" and m5 != "trending":
+            alignment["structure_leading"] = (
+                f"Both 15M ({m15.upper()}) and 5M ({m5.upper()}) have left trending. "
+                f"1H may follow — early regime shift signal."
+            )
+            if alignment["structure_leading"]:
+                warnings.append(alignment["structure_leading"])
+
+        alignment["alignment_points"] = points
 
     except Exception as e:
         log.warning(f"TF hierarchy check error: {e}")
 
-    return conflicts
+    return alignment, warnings
 
 
 # Global cache for latest meta-analysis (updated every regime cycle)
@@ -4440,23 +4565,28 @@ def api_meta(timeframe):
                 df[col] = pd.to_numeric(df[col])
             regime_data = classify_regime(df)
 
+        # BUG FIX: Use actual tendency function chain (calc_tendency_analysis didn't exist)
         tendency_summary = None
         try:
-            closes = [float(r["close"]) for r in reversed(rows)]
-            if len(closes) >= 50:
-                tendency_result = calc_tendency_analysis(closes, timeframe)
-                tendency_summary = tendency_result.get("summary")
+            data = _get_candle_arrays(timeframe, limit=500)
+            if data:
+                timestamps, opens_t, highs_t, lows_t, closes_t = data
+                hourly = calc_hourly_tendency(timestamps, opens_t, highs_t, lows_t, closes_t)
+                weekday = calc_weekday_tendency(timestamps, opens_t, highs_t, lows_t, closes_t)
+                session = calc_session_tendency(timestamps, opens_t, highs_t, lows_t, closes_t)
+                rolling = calc_rolling_tendency(timestamps, closes_t)
+                tendency_summary = calc_current_tendency_summary(hourly, weekday, session, rolling)
         except Exception:
             pass
 
+        # BUG FIX: scan_all_setups takes (closes, highs, lows, regime_data) — not 5 args
         setups_data = None
         try:
             rows_asc = list(reversed(rows))
             highs = [float(r["high"]) for r in rows_asc]
             lows = [float(r["low"]) for r in rows_asc]
             closes_list = [float(r["close"]) for r in rows_asc]
-            opens_list = [float(r["open"]) for r in rows_asc]
-            setups_data = scan_all_setups(opens_list, highs, lows, closes_list, regime_data)
+            setups_data = scan_all_setups(closes_list, highs, lows, regime_data)
         except Exception:
             pass
 

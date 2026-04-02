@@ -1318,6 +1318,8 @@
         const status = document.getElementById("metaScoreStatus");
         const conflictsEl = document.getElementById("metaConflicts");
         const fatigueEl = document.getElementById("metaFatigue");
+        const oppsEl = document.getElementById("metaOpportunities");
+        const spikeEl = document.getElementById("metaSpike");
 
         if (!ring || !val) return;
 
@@ -1325,35 +1327,54 @@
         ring.className = "meta-score-ring " + label.toLowerCase();
         status.textContent = d.meta_narrative ? d.meta_narrative.split(".")[0] + "." : label;
 
-        // Conflict pills
+        // Conflict pills (V75-specific types)
         const conflicts = d.conflicts || [];
+        const conflictLabels = {
+            "indicator_divergence": "INDICATORS",
+            "low_conviction_setup": "LOW CONVICTION",
+            "tendency_vs_regime": "TENDENCY/REGIME",
+            "structure_breakdown": "STRUCTURE BREAK",
+        };
         if (conflicts.length > 0) {
             conflictsEl.innerHTML = conflicts.slice(0, 4).map(c => {
                 const sevClass = c.severity === "high" ? "high" : c.severity === "medium" ? "medium" : "low-sev";
-                // Short label from type
-                const labels = {
-                    "regime_vs_tendency": "REGIME/TENDENCY",
-                    "regime_vs_setup": "REGIME/SETUP",
-                    "setup_vs_regime_direction": "SETUP DIR",
-                    "indicator_conflict": "INDICATORS",
-                    "conviction_mismatch": "CONVICTION",
-                    "alert_overload": "ALERT OVERLOAD",
-                    "alert_vs_regime": "ALERTS/REGIME",
-                    "compression_in_trend": "COMPRESSION",
-                    "timeframe_hierarchy": "TF HIERARCHY",
-                };
-                const lbl = labels[c.type] || c.type.toUpperCase();
+                const lbl = conflictLabels[c.type] || c.type.replace(/_/g, " ").toUpperCase();
                 return `<span class="meta-conflict-pill ${sevClass}" title="${c.description}">${lbl}</span>`;
             }).join("");
         } else {
-            conflictsEl.innerHTML = '<span class="meta-conflict-pill low-sev">NO CONFLICTS</span>';
+            conflictsEl.innerHTML = '<span class="meta-conflict-pill aligned">ALIGNED</span>';
+        }
+
+        // Opportunity pills
+        const opps = d.opportunities || [];
+        if (opps.length > 0 && oppsEl) {
+            const oppLabels = {
+                "fade_opportunity": "FADE",
+                "spike_setup": "SPIKE",
+            };
+            oppsEl.style.display = "flex";
+            oppsEl.innerHTML = opps.slice(0, 3).map(o => {
+                const lbl = oppLabels[o.type] || o.type.replace(/_/g, " ").toUpperCase();
+                return `<span class="meta-conflict-pill opportunity" title="${o.description}">${lbl}</span>`;
+            }).join("");
+        } else if (oppsEl) {
+            oppsEl.style.display = "none";
+        }
+
+        // Spike tracking
+        const spike = d.spike_tracking || {};
+        if (spike.spike_probable && spikeEl) {
+            spikeEl.style.display = "flex";
+            spikeEl.innerHTML = `SPIKE ${Math.round(spike.probability * 100)}% — ${spike.compression_count} compressions building`;
+        } else if (spikeEl) {
+            spikeEl.style.display = "none";
         }
 
         // Fatigue warning
         const fatigue = d.regime_fatigue || {};
         if (fatigue.is_fatigued) {
             fatigueEl.style.display = "flex";
-            fatigueEl.innerHTML = `⏱ REGIME FATIGUE — ${fatigue.duration_readings} readings` +
+            fatigueEl.innerHTML = `REGIME FATIGUE — ${fatigue.duration_readings} readings` +
                 (fatigue.likely_next ? ` → likely ${fatigue.likely_next.toUpperCase()} (${Math.round(fatigue.transition_prob)}%)` : "");
         } else {
             fatigueEl.style.display = "none";
