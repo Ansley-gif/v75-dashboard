@@ -2797,7 +2797,7 @@ class DerivDataService:
         while self.running:
             try:
                 log.info(f"Connecting to Deriv WebSocket...")
-                async with websockets.connect(DERIV_WS_URL) as ws:
+                async with websockets.connect(DERIV_WS_URL, ping_interval=30, ping_timeout=10) as ws:
                     self.ws = ws
                     self.connected = True
                     retry_delay = 5
@@ -2810,9 +2810,19 @@ class DerivDataService:
                         auth_resp = await ws.recv()
                         auth_data = json.loads(auth_resp)
                         if "error" in auth_data:
-                            log.error(f"Auth failed: {auth_data['error']['message']}")
+                            err_msg = auth_data["error"].get("message", "Unknown")
+                            err_code = auth_data["error"].get("code", "")
+                            log.error(f"Auth failed: {err_msg} (code: {err_code})")
                             self.connected = False
-                            return
+                            # Only give up permanently for truly invalid tokens
+                            if err_code in ("InvalidToken", "ExpiredToken"):
+                                log.error("Token is invalid/expired. Stopping reconnection. Update DERIV_API_TOKEN in D.env and restart.")
+                                return
+                            # Transient Deriv error — retry with backoff
+                            log.warning(f"Transient auth error — retrying in {retry_delay}s...")
+                            await asyncio.sleep(retry_delay)
+                            retry_delay = min(retry_delay * 2, 60)
+                            continue
                         log.info("Authorized with Deriv")
 
                     # Fetch historical candles for each timeframe
