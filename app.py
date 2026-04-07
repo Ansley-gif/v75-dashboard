@@ -4490,25 +4490,28 @@ def api_interpret(timeframe):
                 df[col] = pd.to_numeric(df[col])
             regime_data = classify_regime(df)
 
-        # 2. Get tendency summary
+        # 2. Get tendency summary (BUG FIX: use real function chain)
         tendency_summary = None
         try:
-            closes = [float(r["close"]) for r in reversed(rows)]
-            if len(closes) >= 50:
-                tendency_result = calc_tendency_analysis(closes, timeframe)
-                tendency_summary = tendency_result.get("summary")
+            data = _get_candle_arrays(timeframe, limit=500)
+            if data:
+                ts, op, hi, lo, cl = data
+                hourly = calc_hourly_tendency(ts, op, hi, lo, cl)
+                weekday = calc_weekday_tendency(ts, op, hi, lo, cl)
+                session = calc_session_tendency(ts, op, hi, lo, cl)
+                rolling = calc_rolling_tendency(ts, cl)
+                tendency_summary = calc_current_tendency_summary(hourly, weekday, session, rolling)
         except Exception:
             pass
 
-        # 3. Get active setups
+        # 3. Get active setups (BUG FIX: correct args for scan_all_setups)
         setups_data = None
         try:
             rows_asc = list(reversed(rows))
             highs = [float(r["high"]) for r in rows_asc]
             lows = [float(r["low"]) for r in rows_asc]
             closes_list = [float(r["close"]) for r in rows_asc]
-            opens_list = [float(r["open"]) for r in rows_asc]
-            setups_data = scan_all_setups(opens_list, highs, lows, closes_list, regime_data)
+            setups_data = scan_all_setups(closes_list, highs, lows, regime_data)
         except Exception:
             pass
 
@@ -4683,21 +4686,25 @@ def _gather_live_state(timeframe):
             state["regime"] = regime_data
             state["metrics"] = regime_data.get("metrics", {})
 
-            # Tendency
+            # Tendency (BUG FIX: use real function chain, not non-existent calc_tendency_analysis)
             try:
-                closes = [float(r["close"]) for r in rows_asc]
-                tendency_result = calc_tendency_analysis(closes, timeframe)
-                state["tendency"] = tendency_result.get("summary")
+                data = _get_candle_arrays(timeframe, limit=500)
+                if data:
+                    ts, op, hi, lo, cl = data
+                    hourly = calc_hourly_tendency(ts, op, hi, lo, cl)
+                    weekday = calc_weekday_tendency(ts, op, hi, lo, cl)
+                    session = calc_session_tendency(ts, op, hi, lo, cl)
+                    rolling = calc_rolling_tendency(ts, cl)
+                    state["tendency"] = calc_current_tendency_summary(hourly, weekday, session, rolling)
             except Exception:
                 pass
 
-            # Setups
+            # Setups (BUG FIX: scan_all_setups takes 4 args, not 5)
             try:
                 highs = [float(r["high"]) for r in rows_asc]
                 lows = [float(r["low"]) for r in rows_asc]
                 closes_l = [float(r["close"]) for r in rows_asc]
-                opens_l = [float(r["open"]) for r in rows_asc]
-                state["setups"] = scan_all_setups(opens_l, highs, lows, closes_l, regime_data)
+                state["setups"] = {"setups": scan_all_setups(closes_l, highs, lows, regime_data)}
             except Exception:
                 pass
 
@@ -5138,9 +5145,18 @@ def _build_agent_context(timeframe="1h"):
     if isinstance(streak, dict) and streak.get("current"):
         ctx_parts.append(f"  Streak: {streak.get('current', 0)} {streak.get('direction', '?')} candles (avg: {streak.get('avg', 0):.1f})")
 
-    # Tendency
+    # Tendency (real field names from calc_current_tendency_summary)
     if tendency:
-        ctx_parts.append(f"\n[TENDENCY] {tendency.get('bias', 'neutral').upper()} — strength {tendency.get('strength', 0):.0f}%, quality {tendency.get('quality', 'low').upper()}")
+        t_bias = tendency.get("tendency", "neutral")
+        t_strength = tendency.get("tendency_strength", 0)
+        t_quality = tendency.get("window_quality", 0)
+        ctx_parts.append(f"\n[TENDENCY] {t_bias.upper()} — strength {t_strength:.0%}, quality {t_quality:.2f}")
+        # Consensus detail
+        consensus = tendency.get("consensus_detail", {})
+        if consensus:
+            ctx_parts.append(f"  Votes: {consensus.get('bullish_votes', 0)} bullish, {consensus.get('bearish_votes', 0)} bearish")
+            ctx_parts.append(f"  Time biases: {consensus.get('time_biases', [])}")
+            ctx_parts.append(f"  Rolling biases: {consensus.get('rolling_biases', [])}")
 
     # Setups
     setup_list = setups.get("setups", []) if isinstance(setups, dict) else []
@@ -5214,17 +5230,37 @@ def _build_agent_context(timeframe="1h"):
             for d in drift_notes:
                 ctx_parts.append(f"  ⚠ {d}")
 
-    # Meta-Analysis (the collective intelligence layer)
+    # Meta-Analysis (the collective intelligence layer — V75-specific)
     global _latest_meta_analysis
     if _latest_meta_analysis:
         meta = _latest_meta_analysis
         ctx_parts.append(f"\n[META-ANALYSIS] System Alignment: {meta.get('alignment_score', '?')}/100 ({meta.get('alignment_label', '?')})")
+
+        # Score breakdown
+        breakdown = meta.get("score_breakdown", {})
+        if breakdown:
+            ctx_parts.append(f"  Score breakdown: Tendency={breakdown.get('tendency', 0)}/35, TF Hierarchy={breakdown.get('tf_hierarchy', 0)}/25, Regime={breakdown.get('regime_confidence', 0)}/20, Setups={breakdown.get('setup_alignment', 0)}/15, Alerts={breakdown.get('alert_health', 0)}/5")
+
         conflicts = meta.get("conflicts", [])
         if conflicts:
             ctx_parts.append(f"  {len(conflicts)} signal conflict(s):")
             for c in conflicts[:5]:
                 ctx_parts.append(f"  ⚠ [{c['severity'].upper()}] {c['description']}")
                 ctx_parts.append(f"    → {c['resolution']}")
+
+        # Opportunities (fade setups, spike patterns)
+        opportunities = meta.get("opportunities", [])
+        if opportunities:
+            ctx_parts.append(f"  {len(opportunities)} opportunity(s):")
+            for o in opportunities:
+                ctx_parts.append(f"  ✦ [{o['type'].upper()}] {o['description']}")
+                ctx_parts.append(f"    → {o['resolution']}")
+
+        # Spike tracking
+        spike = meta.get("spike_tracking", {})
+        if spike.get("spike_probable"):
+            ctx_parts.append(f"  ⚡ SPIKE BUILDING: {spike['probability']:.0%} probability ({spike['compression_count']} compressions)")
+
         fatigue = meta.get("regime_fatigue", {})
         if fatigue.get("is_fatigued"):
             ctx_parts.append(f"  ⚠ REGIME FATIGUE: {fatigue['duration_readings']} readings (avg: {fatigue['avg_duration']:.0f})")
