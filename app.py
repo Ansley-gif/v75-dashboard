@@ -39,7 +39,30 @@ APP_PORT = int(os.environ.get("V75_PORT", 8085))
 DERIV_APP_ID = os.environ.get("DERIV_APP_ID", "1089")  # Default public app ID
 DERIV_API_TOKEN = os.environ.get("DERIV_API_TOKEN", "")
 DERIV_WS_URL = f"wss://ws.derivws.com/websockets/v3?app_id={DERIV_APP_ID}"
-V75_SYMBOL = "R_75"  # Deriv symbol for Volatility 75
+V75_SYMBOL = "R_75"  # Deriv symbol for Volatility 75 (kept as default everywhere)
+
+# All supported symbols
+SYMBOLS = {
+    "R_75":      {"name": "V75",        "tick_rate": "2s", "category": "volatility"},
+    "R_10":      {"name": "V10",        "tick_rate": "2s", "category": "volatility"},
+    "1HZ10V":    {"name": "V10 1s",     "tick_rate": "1s", "category": "volatility_1s"},
+    "R_25":      {"name": "V25",        "tick_rate": "2s", "category": "volatility"},
+    "1HZ25V":    {"name": "V25 1s",     "tick_rate": "1s", "category": "volatility_1s"},
+    "R_50":      {"name": "V50",        "tick_rate": "2s", "category": "volatility"},
+    "1HZ75V":    {"name": "V75 1s",     "tick_rate": "1s", "category": "volatility_1s"},
+    "1HZ100V":   {"name": "V100 1s",    "tick_rate": "1s", "category": "volatility_1s"},
+    "BOOM1000":  {"name": "Boom 1000",  "tick_rate": "2s", "category": "boom_crash"},
+    "CRASH1000": {"name": "Crash 1000", "tick_rate": "2s", "category": "boom_crash"},
+    "CRASH500":  {"name": "Crash 500",  "tick_rate": "2s", "category": "boom_crash"},
+    "stpRNG":    {"name": "Step Index", "tick_rate": "2s", "category": "step"},
+}
+DEFAULT_SYMBOL = V75_SYMBOL
+
+
+def valid_symbol(sym):
+    """Return sym if it's a known symbol, else DEFAULT_SYMBOL."""
+    return sym if sym in SYMBOLS else DEFAULT_SYMBOL
+
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "v75_data.db")
 
@@ -136,13 +159,32 @@ def get_db():
     return conn
 
 
+def _migrate_add_symbol_column():
+    """Add symbol column to existing tables. Safe to call multiple times."""
+    conn = get_db()
+    for table in ("candles", "regime_history", "alerts"):
+        cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+        if cols and "symbol" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN symbol TEXT NOT NULL DEFAULT 'R_75'")
+            log.info(f"Migrated {table}: added symbol column")
+    conn.commit()
+    conn.close()
+
+
 def init_db():
     """Initialize database tables."""
+    # Migrate existing tables first (safe if tables don't exist yet)
+    try:
+        _migrate_add_symbol_column()
+    except Exception:
+        pass  # Tables don't exist yet on first run — that's fine
+
     conn = get_db()
-    # Candles table - stores OHLCV for all timeframes
+    # Candles table - stores OHLCV for all timeframes and symbols
     conn.execute("""
         CREATE TABLE IF NOT EXISTS candles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL DEFAULT 'R_75',
             timeframe TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
             open REAL NOT NULL,
@@ -151,18 +193,19 @@ def init_db():
             close REAL NOT NULL,
             tick_count INTEGER DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(timeframe, timestamp)
+            UNIQUE(symbol, timeframe, timestamp)
         )
     """)
     conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_candles_tf_ts
-        ON candles(timeframe, timestamp DESC)
+        CREATE INDEX IF NOT EXISTS idx_candles_sym_tf_ts
+        ON candles(symbol, timeframe, timestamp DESC)
     """)
 
     # Regime history - stores classified regimes over time
     conn.execute("""
         CREATE TABLE IF NOT EXISTS regime_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL DEFAULT 'R_75',
             timeframe TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
             regime TEXT NOT NULL,
@@ -172,7 +215,7 @@ def init_db():
             autocorrelation REAL,
             confidence REAL,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(timeframe, timestamp)
+            UNIQUE(symbol, timeframe, timestamp)
         )
     """)
 
@@ -229,6 +272,7 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL DEFAULT 'R_75',
             timestamp INTEGER NOT NULL,
             alert_type TEXT NOT NULL,
             severity TEXT NOT NULL DEFAULT 'info',
@@ -2771,11 +2815,25 @@ class DerivDataService:
     def __init__(self):
         self.ws = None
         self.running = False
-        self.tick_buffer = deque(maxlen=10000)
-        self.latest_tick = None
+        self.latest_ticks = {}                                      # keyed by symbol
+        self.tick_buffers = {s: deque(maxlen=10000) for s in SYMBOLS}  # per-symbol
         self.connected = False
         self._loop = None
         self._thread = None
+
+    # Backward-compat properties — existing code that reads the old names
+    # will transparently get the DEFAULT_SYMBOL data.
+    @property
+    def latest_tick(self):
+        return self.latest_ticks.get(DEFAULT_SYMBOL)
+
+    @latest_tick.setter
+    def latest_tick(self, value):
+        self.latest_ticks[DEFAULT_SYMBOL] = value
+
+    @property
+    def tick_buffer(self):
+        return self.tick_buffers.get(DEFAULT_SYMBOL, deque())
 
     def start(self):
         """Start the data service in a background thread."""
@@ -2828,13 +2886,15 @@ class DerivDataService:
                     # Fetch historical candles for each timeframe
                     await self._fetch_history(ws)
 
-                    # Subscribe to live ticks
-                    sub_msg = {
-                        "ticks": V75_SYMBOL,
-                        "subscribe": 1,
-                    }
-                    await ws.send(json.dumps(sub_msg))
-                    log.info(f"Subscribed to {V75_SYMBOL} ticks")
+                    # Subscribe to live ticks for ALL symbols
+                    for sym in SYMBOLS:
+                        sub_msg = {
+                            "ticks": sym,
+                            "subscribe": 1,
+                        }
+                        await ws.send(json.dumps(sub_msg))
+                        log.info(f"Subscribed to {sym} ticks")
+                        await asyncio.sleep(0.2)  # avoid rate-limiting
 
                     # Process incoming messages
                     async for message in ws:
@@ -2851,7 +2911,7 @@ class DerivDataService:
                 retry_delay = min(retry_delay * 2, 60)
 
     async def _fetch_history(self, ws):
-        """Fetch historical candle data for backtesting regime classification."""
+        """Fetch historical candle data for all symbols and timeframes."""
         # Map our timeframes to Deriv's granularity values
         tf_to_granularity = {
             "1m": 60,
@@ -2861,61 +2921,67 @@ class DerivDataService:
             "4h": 14400,
         }
 
-        for tf, granularity in tf_to_granularity.items():
-            try:
-                # Request last 500 candles
-                hist_msg = {
-                    "ticks_history": V75_SYMBOL,
-                    "adjust_start_time": 1,
-                    "count": 500,
-                    "end": "latest",
-                    "granularity": granularity,
-                    "style": "candles",
-                }
-                await ws.send(json.dumps(hist_msg))
-                resp = await ws.recv()
-                data = json.loads(resp)
+        for sym in SYMBOLS:
+            for tf, granularity in tf_to_granularity.items():
+                try:
+                    # Request last 500 candles
+                    hist_msg = {
+                        "ticks_history": sym,
+                        "adjust_start_time": 1,
+                        "count": 500,
+                        "end": "latest",
+                        "granularity": granularity,
+                        "style": "candles",
+                    }
+                    await ws.send(json.dumps(hist_msg))
+                    resp = await ws.recv()
+                    data = json.loads(resp)
 
-                if "candles" in data:
-                    candles = data["candles"]
-                    conn = get_db()
-                    for c in candles:
-                        try:
-                            conn.execute(
-                                """INSERT OR IGNORE INTO candles
-                                   (timeframe, timestamp, open, high, low, close)
-                                   VALUES (?, ?, ?, ?, ?, ?)""",
-                                (tf, c["epoch"], c["open"], c["high"], c["low"], c["close"]),
-                            )
-                        except sqlite3.IntegrityError:
-                            pass
-                    conn.commit()
-                    conn.close()
-                    log.info(f"Loaded {len(candles)} historical {tf} candles")
-                elif "error" in data:
-                    log.warning(f"History error for {tf}: {data['error'].get('message')}")
+                    if "candles" in data:
+                        candles = data["candles"]
+                        conn = get_db()
+                        for c in candles:
+                            try:
+                                conn.execute(
+                                    """INSERT OR IGNORE INTO candles
+                                       (symbol, timeframe, timestamp, open, high, low, close)
+                                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                    (sym, tf, c["epoch"], c["open"], c["high"], c["low"], c["close"]),
+                                )
+                            except sqlite3.IntegrityError:
+                                pass
+                        conn.commit()
+                        conn.close()
+                        log.info(f"Loaded {len(candles)} historical {tf} candles for {sym}")
+                    elif "error" in data:
+                        log.warning(f"History error for {sym}/{tf}: {data['error'].get('message')}")
 
-            except Exception as e:
-                log.error(f"Failed to fetch {tf} history: {e}")
+                    await asyncio.sleep(0.3)  # avoid rate-limiting between fetches
+
+                except Exception as e:
+                    log.error(f"Failed to fetch {sym}/{tf} history: {e}")
 
     def _process_tick(self, tick):
-        """Process incoming tick and update candle data."""
-        self.latest_tick = {
+        """Process incoming tick and update candle data for the correct symbol."""
+        sym = tick.get("symbol", DEFAULT_SYMBOL)
+        tick_data = {
             "price": float(tick["quote"]),
             "timestamp": int(tick["epoch"]),
-            "symbol": tick.get("symbol", V75_SYMBOL),
+            "symbol": sym,
         }
-        self.tick_buffer.append(self.latest_tick)
+        self.latest_ticks[sym] = tick_data
+        if sym in self.tick_buffers:
+            self.tick_buffers[sym].append(tick_data)
 
         # Update current candles for each timeframe
         conn = get_db()
+        price = tick_data["price"]
         for tf, seconds in TIMEFRAMES.items():
-            candle_ts = (self.latest_tick["timestamp"] // seconds) * seconds
-            price = self.latest_tick["price"]
+            candle_ts = (tick_data["timestamp"] // seconds) * seconds
 
             existing = conn.execute(
-                "SELECT * FROM candles WHERE timeframe=? AND timestamp=?",
-                (tf, candle_ts),
+                "SELECT * FROM candles WHERE symbol=? AND timeframe=? AND timestamp=?",
+                (sym, tf, candle_ts),
             ).fetchone()
 
             if existing:
@@ -2923,15 +2989,15 @@ class DerivDataService:
                 new_low = min(existing["low"], price)
                 conn.execute(
                     """UPDATE candles SET high=?, low=?, close=?, tick_count=tick_count+1
-                       WHERE timeframe=? AND timestamp=?""",
-                    (new_high, new_low, price, tf, candle_ts),
+                       WHERE symbol=? AND timeframe=? AND timestamp=?""",
+                    (new_high, new_low, price, sym, tf, candle_ts),
                 )
             else:
                 conn.execute(
                     """INSERT OR IGNORE INTO candles
-                       (timeframe, timestamp, open, high, low, close, tick_count)
-                       VALUES (?, ?, ?, ?, ?, ?, 1)""",
-                    (tf, candle_ts, price, price, price, price),
+                       (symbol, timeframe, timestamp, open, high, low, close, tick_count)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 1)""",
+                    (sym, tf, candle_ts, price, price, price, price),
                 )
         conn.commit()
         conn.close()
@@ -2969,6 +3035,18 @@ def sanitize_for_json(obj):
     return obj
 
 
+def get_request_symbol():
+    """Extract ?symbol= from request args, falling back to DEFAULT_SYMBOL."""
+    sym = request.args.get("symbol", DEFAULT_SYMBOL)
+    return sym if sym in SYMBOLS else DEFAULT_SYMBOL
+
+
+@app.route("/api/symbols")
+def api_symbols():
+    """Return all supported symbols and their metadata."""
+    return jsonify({sym: info for sym, info in SYMBOLS.items()})
+
+
 @app.route("/sw.js")
 def service_worker():
     """Serve SW from root so its scope covers the whole app."""
@@ -2984,12 +3062,15 @@ def dashboard():
 @app.route("/api/status")
 def api_status():
     """System status check."""
+    symbol = get_request_symbol()
+    tick = data_service.latest_ticks.get(symbol)
     return jsonify({
         "connected": data_service.connected,
-        "latest_tick": data_service.latest_tick,
-        "tick_buffer_size": len(data_service.tick_buffer),
+        "latest_tick": tick,
+        "tick_buffer_size": len(data_service.tick_buffers.get(symbol, deque())),
         "has_api_token": bool(DERIV_API_TOKEN),
-        "symbol": V75_SYMBOL,
+        "symbol": symbol,
+        "active_symbols": list(SYMBOLS.keys()),
         "server_time": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -2997,14 +3078,15 @@ def api_status():
 @app.route("/api/regime")
 def api_regime():
     """Get current regime classification for all timeframes."""
+    symbol = get_request_symbol()
     results = {}
     conn = get_db()
 
     for tf in TIMEFRAMES:
         rows = conn.execute(
             """SELECT timestamp, open, high, low, close FROM candles
-               WHERE timeframe=? ORDER BY timestamp DESC LIMIT ?""",
-            (tf, REGIME_CONFIG["regime_lookback"] + 50),
+               WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT ?""",
+            (symbol, tf, REGIME_CONFIG["regime_lookback"] + 50),
         ).fetchall()
 
         if len(rows) < 20:
@@ -3037,12 +3119,13 @@ def api_candles(timeframe):
     if timeframe not in TIMEFRAMES:
         return jsonify({"error": f"Invalid timeframe: {timeframe}"}), 400
 
+    symbol = get_request_symbol()
     limit = request.args.get("limit", 200, type=int)
     conn = get_db()
     rows = conn.execute(
         """SELECT timestamp, open, high, low, close, tick_count FROM candles
-           WHERE timeframe=? ORDER BY timestamp DESC LIMIT ?""",
-        (timeframe, limit),
+           WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT ?""",
+        (symbol, timeframe, limit),
     ).fetchall()
     conn.close()
 
@@ -3067,11 +3150,12 @@ def api_metrics(timeframe):
     if timeframe not in TIMEFRAMES:
         return jsonify({"error": f"Invalid timeframe: {timeframe}"}), 400
 
+    symbol = get_request_symbol()
     conn = get_db()
     rows = conn.execute(
         """SELECT timestamp, open, high, low, close FROM candles
-           WHERE timeframe=? ORDER BY timestamp DESC LIMIT 200""",
-        (timeframe,),
+           WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 200""",
+        (symbol, timeframe),
     ).fetchall()
     conn.close()
 
@@ -3137,11 +3221,12 @@ def api_regime_history(timeframe):
     if timeframe not in TIMEFRAMES:
         return jsonify({"error": f"Invalid timeframe: {timeframe}"}), 400
 
+    symbol = get_request_symbol()
     conn = get_db()
     rows = conn.execute(
         """SELECT * FROM regime_history
-           WHERE timeframe=? ORDER BY timestamp DESC LIMIT 100""",
-        (timeframe,),
+           WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 100""",
+        (symbol, timeframe),
     ).fetchall()
     conn.close()
 
@@ -3152,13 +3237,15 @@ def api_regime_history(timeframe):
 # Tendency Engine API Endpoints (Phase 2 — Panel B)
 # ---------------------------------------------------------------------------
 
-def _get_candle_arrays(timeframe, limit=500):
+def _get_candle_arrays(timeframe, limit=500, symbol=None):
     """Helper: fetch candle arrays for tendency calculations."""
+    if symbol is None:
+        symbol = DEFAULT_SYMBOL
     conn = get_db()
     rows = conn.execute(
         """SELECT timestamp, open, high, low, close FROM candles
-           WHERE timeframe=? ORDER BY timestamp DESC LIMIT ?""",
-        (timeframe, limit),
+           WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT ?""",
+        (symbol, timeframe, limit),
     ).fetchall()
     conn.close()
 
@@ -3184,7 +3271,8 @@ def api_tendency(timeframe):
     if timeframe not in TIMEFRAMES:
         return jsonify({"error": f"Invalid timeframe: {timeframe}"}), 400
 
-    data = _get_candle_arrays(timeframe, limit=500)
+    symbol = get_request_symbol()
+    data = _get_candle_arrays(timeframe, limit=500, symbol=symbol)
     if data is None:
         return jsonify({"error": "Insufficient data", "candle_count": 0})
 
@@ -3217,7 +3305,8 @@ def api_tendency_summary(timeframe):
     if timeframe not in TIMEFRAMES:
         return jsonify({"error": f"Invalid timeframe: {timeframe}"}), 400
 
-    data = _get_candle_arrays(timeframe, limit=500)
+    symbol = get_request_symbol()
+    data = _get_candle_arrays(timeframe, limit=500, symbol=symbol)
     if data is None:
         return jsonify({"error": "Insufficient data"})
 
@@ -3245,11 +3334,12 @@ def api_setups(timeframe):
     if timeframe not in TIMEFRAMES:
         return jsonify({"error": f"Invalid timeframe: {timeframe}"}), 400
 
+    symbol = get_request_symbol()
     conn = get_db()
     rows = conn.execute(
         """SELECT timestamp, open, high, low, close FROM candles
-           WHERE timeframe=? ORDER BY timestamp DESC LIMIT 200""",
-        (timeframe,),
+           WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 200""",
+        (symbol, timeframe),
     ).fetchall()
     conn.close()
 
@@ -3287,14 +3377,15 @@ def api_setups(timeframe):
 @app.route("/api/setups/all")
 def api_setups_all():
     """Scan all timeframes and return setups from each."""
+    symbol = get_request_symbol()
     all_setups = {}
     for tf in TIMEFRAMES:
         try:
             conn = get_db()
             rows = conn.execute(
                 """SELECT timestamp, open, high, low, close FROM candles
-                   WHERE timeframe=? ORDER BY timestamp DESC LIMIT 200""",
-                (tf,),
+                   WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 200""",
+                (symbol, tf),
             ).fetchall()
             conn.close()
 
@@ -3333,17 +3424,18 @@ def api_setups_all():
 @app.route("/api/alerts")
 def api_alerts():
     """Get recent alerts (undismissed by default)."""
+    symbol = get_request_symbol()
     show_all = request.args.get("all", "0") == "1"
     limit = request.args.get("limit", 50, type=int)
 
     conn = get_db()
     if show_all:
         rows = conn.execute(
-            "SELECT * FROM alerts ORDER BY timestamp DESC LIMIT ?", (limit,)
+            "SELECT * FROM alerts WHERE symbol=? ORDER BY timestamp DESC LIMIT ?", (symbol, limit)
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM alerts WHERE dismissed=0 ORDER BY timestamp DESC LIMIT ?", (limit,)
+            "SELECT * FROM alerts WHERE symbol=? AND dismissed=0 ORDER BY timestamp DESC LIMIT ?", (symbol, limit)
         ).fetchall()
     conn.close()
 
@@ -3382,8 +3474,9 @@ def api_dismiss_all_alerts():
 @app.route("/api/alerts/count")
 def api_alert_count():
     """Quick count of undismissed alerts — for badge display."""
+    symbol = get_request_symbol()
     conn = get_db()
-    count = conn.execute("SELECT COUNT(*) FROM alerts WHERE dismissed=0").fetchone()[0]
+    count = conn.execute("SELECT COUNT(*) FROM alerts WHERE symbol=? AND dismissed=0", (symbol,)).fetchone()[0]
     conn.close()
     return jsonify({"count": count})
 
@@ -3670,8 +3763,8 @@ def _analyze_alert_intelligence_v75(timeframe="1h", regime="unknown"):
         conn = get_db()
         four_hours_ago = int(time.time()) - 4 * 3600
         rows = conn.execute(
-            "SELECT alert_type, severity, title, timeframe FROM alerts WHERE timestamp > ? ORDER BY timestamp DESC",
-            (four_hours_ago,)
+            "SELECT alert_type, severity, title, timeframe FROM alerts WHERE symbol=? AND timestamp > ? ORDER BY timestamp DESC",
+            (DEFAULT_SYMBOL, four_hours_ago)
         ).fetchall()
         conn.close()
 
@@ -3730,8 +3823,8 @@ def _check_regime_fatigue(current_regime, timeframe="1h"):
         # Get recent regime history
         rows = conn.execute(
             """SELECT regime, timestamp FROM regime_history
-               WHERE timeframe=? ORDER BY timestamp DESC LIMIT 200""",
-            (timeframe,)
+               WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 200""",
+            (DEFAULT_SYMBOL, timeframe)
         ).fetchall()
         conn.close()
 
@@ -3845,8 +3938,8 @@ def _check_timeframe_hierarchy_v75(bias_regime="unknown", bias_sub="unknown"):
         tf_regimes = {}
         for tf in ["1m", "5m", "15m", "1h"]:
             row = conn.execute(
-                "SELECT regime, confidence FROM regime_history WHERE timeframe=? ORDER BY timestamp DESC LIMIT 1",
-                (tf,)
+                "SELECT regime, confidence FROM regime_history WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 1",
+                (DEFAULT_SYMBOL, tf)
             ).fetchone()
             if row:
                 tf_regimes[tf] = {"regime": row["regime"], "confidence": row["confidence"]}
@@ -4483,13 +4576,14 @@ def api_interpret(timeframe):
         return jsonify({"error": f"Invalid timeframe: {timeframe}"}), 400
 
     try:
+        symbol = get_request_symbol()
         conn = get_db()
 
         # 1. Get current regime
         rows = conn.execute(
             """SELECT timestamp, open, high, low, close FROM candles
-               WHERE timeframe=? ORDER BY timestamp DESC LIMIT 200""",
-            (timeframe,),
+               WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 200""",
+            (symbol, timeframe),
         ).fetchall()
 
         regime_data = {"regime": "unknown", "sub_regime": "unknown", "confidence": 0, "metrics": {}}
@@ -4503,7 +4597,7 @@ def api_interpret(timeframe):
         # 2. Get tendency summary (BUG FIX: use real function chain)
         tendency_summary = None
         try:
-            data = _get_candle_arrays(timeframe, limit=500)
+            data = _get_candle_arrays(timeframe, limit=500, symbol=symbol)
             if data:
                 ts, op, hi, lo, cl = data
                 hourly = calc_hourly_tendency(ts, op, hi, lo, cl)
@@ -4563,11 +4657,12 @@ def api_meta(timeframe):
         return jsonify({"error": f"Invalid timeframe: {timeframe}"}), 400
 
     try:
+        symbol = get_request_symbol()
         conn = get_db()
         rows = conn.execute(
             """SELECT timestamp, open, high, low, close FROM candles
-               WHERE timeframe=? ORDER BY timestamp DESC LIMIT 200""",
-            (timeframe,),
+               WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 200""",
+            (symbol, timeframe),
         ).fetchall()
 
         regime_data = {"regime": "unknown", "sub_regime": "unknown", "confidence": 0, "metrics": {}}
@@ -4581,7 +4676,7 @@ def api_meta(timeframe):
         # BUG FIX: Use actual tendency function chain (calc_tendency_analysis didn't exist)
         tendency_summary = None
         try:
-            data = _get_candle_arrays(timeframe, limit=500)
+            data = _get_candle_arrays(timeframe, limit=500, symbol=symbol)
             if data:
                 timestamps, opens_t, highs_t, lows_t, closes_t = data
                 hourly = calc_hourly_tendency(timestamps, opens_t, highs_t, lows_t, closes_t)
@@ -5392,8 +5487,8 @@ def _compute_weekly_baseline(timeframe="1h"):
         week_ago = int(time.time()) - 7 * 86400
         rows = conn.execute(
             """SELECT regime, adx, hurst, atr_ratio, autocorrelation
-               FROM regime_history WHERE timeframe=? AND timestamp > ?""",
-            (timeframe, week_ago)
+               FROM regime_history WHERE symbol=? AND timeframe=? AND timestamp > ?""",
+            (DEFAULT_SYMBOL, timeframe, week_ago)
         ).fetchall()
 
         if len(rows) < 10:
@@ -5457,7 +5552,8 @@ def _detect_drift_and_observe():
         # Check if market has been in one regime for extended period
         recent = conn.execute(
             """SELECT regime FROM regime_history
-               WHERE timeframe='1h' ORDER BY timestamp DESC LIMIT 50"""
+               WHERE symbol=? AND timeframe='1h' ORDER BY timestamp DESC LIMIT 50""",
+            (DEFAULT_SYMBOL,)
         ).fetchall()
 
         if recent and len(recent) >= 20:
@@ -5616,7 +5712,7 @@ def _generate_3day_report():
         # Alert activity
         parts.append("\n*ALERT ACTIVITY (3 days)*")
         alert_rows = conn.execute(
-            "SELECT alert_type, COUNT(*) as cnt FROM alerts WHERE timestamp > ? GROUP BY alert_type ORDER BY cnt DESC",
+            "SELECT alert_type, COUNT(*) as cnt FROM alerts WHERE symbol='R_75' AND timestamp > ? GROUP BY alert_type ORDER BY cnt DESC",
             (three_days_ago,)
         ).fetchall()
         total_alerts = sum(r["cnt"] for r in alert_rows)
@@ -5673,7 +5769,7 @@ def _generate_7day_report():
         # Regime distribution
         parts.append("*REGIME DISTRIBUTION (7 days)*")
         regimes = conn.execute(
-            "SELECT regime, COUNT(*) as cnt FROM regime_history WHERE timeframe='1h' AND timestamp > ? GROUP BY regime ORDER BY cnt DESC",
+            "SELECT regime, COUNT(*) as cnt FROM regime_history WHERE symbol='R_75' AND timeframe='1h' AND timestamp > ? GROUP BY regime ORDER BY cnt DESC",
             (week_ago,)
         ).fetchall()
         total = sum(r["cnt"] for r in regimes) or 1
@@ -5695,7 +5791,7 @@ def _generate_7day_report():
         # Alert patterns
         parts.append("\n*ALERT PATTERNS*")
         alert_types = conn.execute(
-            "SELECT alert_type, COUNT(*) as cnt FROM alerts WHERE timestamp > ? GROUP BY alert_type ORDER BY cnt DESC",
+            "SELECT alert_type, COUNT(*) as cnt FROM alerts WHERE symbol='R_75' AND timestamp > ? GROUP BY alert_type ORDER BY cnt DESC",
             (week_ago,)
         ).fetchall()
         for a in alert_types:
@@ -5775,7 +5871,7 @@ def _generate_14day_report():
         # Regime behavior analysis
         parts.append("\n*V75 BEHAVIOR ANALYSIS*")
         regimes = conn.execute(
-            "SELECT regime, COUNT(*) as cnt FROM regime_history WHERE timeframe='1h' AND timestamp > ? GROUP BY regime",
+            "SELECT regime, COUNT(*) as cnt FROM regime_history WHERE symbol='R_75' AND timeframe='1h' AND timestamp > ? GROUP BY regime",
             (two_weeks_ago,)
         ).fetchall()
         total_r = sum(r["cnt"] for r in regimes) or 1
@@ -5827,12 +5923,12 @@ def _generate_30day_report():
         mid = now - 15 * 86400
         first_half = conn.execute(
             "SELECT AVG(adx) as adx, AVG(hurst) as hurst, AVG(atr_ratio) as atr, AVG(autocorrelation) as ac "
-            "FROM regime_history WHERE timeframe='1h' AND timestamp BETWEEN ? AND ?",
+            "FROM regime_history WHERE symbol='R_75' AND timeframe='1h' AND timestamp BETWEEN ? AND ?",
             (month_ago, mid)
         ).fetchone()
         second_half = conn.execute(
             "SELECT AVG(adx) as adx, AVG(hurst) as hurst, AVG(atr_ratio) as atr, AVG(autocorrelation) as ac "
-            "FROM regime_history WHERE timeframe='1h' AND timestamp BETWEEN ? AND ?",
+            "FROM regime_history WHERE symbol='R_75' AND timeframe='1h' AND timestamp BETWEEN ? AND ?",
             (mid, now)
         ).fetchone()
 
@@ -5852,7 +5948,7 @@ def _generate_30day_report():
         # Regime transitions
         parts.append("\n*REGIME TRANSITION MAP*")
         all_regimes = conn.execute(
-            "SELECT regime FROM regime_history WHERE timeframe='1h' AND timestamp > ? ORDER BY timestamp ASC",
+            "SELECT regime FROM regime_history WHERE symbol='R_75' AND timeframe='1h' AND timestamp > ? ORDER BY timestamp ASC",
             (month_ago,)
         ).fetchall()
         if len(all_regimes) > 20:
@@ -5936,6 +6032,7 @@ def api_risk(timeframe):
     if timeframe not in TIMEFRAMES:
         return jsonify({"error": f"Invalid timeframe: {timeframe}"}), 400
 
+    symbol = get_request_symbol()
     balance = request.args.get("balance", RISK_CONFIG["default_account_balance"], type=float)
     risk_pct = request.args.get("risk_pct", RISK_CONFIG["default_risk_pct"], type=float)
     stop_type = request.args.get("stop_type", "normal")
@@ -5943,8 +6040,8 @@ def api_risk(timeframe):
     conn = get_db()
     rows = conn.execute(
         """SELECT timestamp, open, high, low, close FROM candles
-           WHERE timeframe=? ORDER BY timestamp DESC LIMIT 200""",
-        (timeframe,),
+           WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 200""",
+        (symbol, timeframe),
     ).fetchall()
 
     if len(rows) < 20:
@@ -6143,37 +6240,43 @@ def _send_telegram(severity, title, message, timeframe=""):
     threading.Thread(target=_do_send, daemon=True).start()
 
 
-def _store_alert(alert_type, severity, title, message, timeframe="", data=None):
+def _store_alert(alert_type, severity, title, message, timeframe="", data=None, symbol=None):
     """Write alert to DB and update cooldown."""
-    key = f"{alert_type}:{timeframe}"
+    if symbol is None:
+        symbol = DEFAULT_SYMBOL
+    key = f"{symbol}:{alert_type}:{timeframe}"
     _last_alert_times[key] = time.time()
 
     try:
         conn = get_db()
         conn.execute(
-            """INSERT INTO alerts (timestamp, alert_type, severity, title, message, timeframe, data)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (int(time.time()), alert_type, severity, title, message, timeframe,
+            """INSERT INTO alerts (symbol, timestamp, alert_type, severity, title, message, timeframe, data)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (symbol, int(time.time()), alert_type, severity, title, message, timeframe,
              json.dumps(sanitize_for_json(data or {}))),
         )
         conn.commit()
         conn.close()
-        log.info(f"Alert: [{severity}] {title}")
-        _send_telegram(severity, title, message, timeframe)
+        sym_name = SYMBOLS.get(symbol, {}).get("name", symbol)
+        log.info(f"Alert [{sym_name}]: [{severity}] {title}")
+        _send_telegram(severity, f"[{sym_name}] {title}", message, timeframe)
     except Exception as e:
         log.error(f"Failed to store alert: {e}")
 
 
-def check_regime_shift_alerts(timeframe, current_regime_data):
+def check_regime_shift_alerts(timeframe, current_regime_data, symbol=None):
     """Detect when market regime changes — the most important alert."""
+    if symbol is None:
+        symbol = DEFAULT_SYMBOL
     global _prev_regimes
 
     regime = current_regime_data.get("regime", "unknown")
     sub_regime = current_regime_data.get("sub_regime", "unknown")
     confidence = current_regime_data.get("confidence", 0)
 
-    prev = _prev_regimes.get(timeframe)
-    _prev_regimes[timeframe] = regime
+    key = f"{symbol}:{timeframe}"
+    prev = _prev_regimes.get(key)
+    _prev_regimes[key] = regime
 
     if prev is None or prev == regime:
         return  # No shift or first read
@@ -6190,10 +6293,11 @@ def check_regime_shift_alerts(timeframe, current_regime_data):
         message=f"{prev.upper()} → {regime.upper()} ({sub_regime}) | Confidence: {confidence:.0f}%",
         timeframe=timeframe,
         data={"from": prev, "to": regime, "sub_regime": sub_regime, "confidence": confidence},
+        symbol=symbol,
     )
 
 
-def check_compression_alerts(timeframe, closes, highs, lows):
+def check_compression_alerts(timeframe, closes, highs, lows, symbol=None):
     """Detect Bollinger Band compression approaching breakout threshold."""
     if len(closes) < 30:
         return
@@ -6226,10 +6330,11 @@ def check_compression_alerts(timeframe, closes, highs, lows):
             message=f"BB Width at {percentile:.0f}th percentile — breakout conditions building. ATR: {atr:.2f}" if atr else f"BB Width at {percentile:.0f}th percentile — breakout conditions building.",
             timeframe=timeframe,
             data={"bb_width": round(bb_width, 5), "percentile": round(percentile, 1)},
+            symbol=symbol,
         )
 
 
-def check_time_window_alerts(tendency_data):
+def check_time_window_alerts(tendency_data, symbol=None):
     """Alert when a historically high-performance time window is approaching or active."""
     if not tendency_data:
         return
@@ -6251,6 +6356,7 @@ def check_time_window_alerts(tendency_data):
                         message=f"{bias} tendency ({h['bullish_pct']:.0f}% bull, z={h['z_score']:.2f}, quality={h['trend_quality']:.2f}). Prepare for clean moves.",
                         data={"hour": h["bucket"], "bullish_pct": h["bullish_pct"],
                               "z_score": h["z_score"], "trend_quality": h["trend_quality"]},
+                        symbol=symbol,
                     )
                 break  # Only one time window alert per cycle
 
@@ -6279,7 +6385,7 @@ def check_overtrading_alerts():
         log.warning(f"Overtrading check failed: {e}")
 
 
-def check_streak_exhaustion_alerts(timeframe, closes):
+def check_streak_exhaustion_alerts(timeframe, closes, symbol=None):
     """Alert when a long directional streak may be exhausting."""
     if len(closes) < 10:
         return
@@ -6299,10 +6405,11 @@ def check_streak_exhaustion_alerts(timeframe, closes):
             message=f"Extended streak may be approaching exhaustion. Watch for reversal signals. Max historical: {streak['max_streak']}.",
             timeframe=timeframe,
             data={"streak": streak["current_streak"], "max_streak": streak["max_streak"]},
+            symbol=symbol,
         )
 
 
-def check_setup_confluence_alerts(timeframe, setups_data):
+def check_setup_confluence_alerts(timeframe, setups_data, symbol=None):
     """Alert when multiple high-confidence setups align."""
     if not setups_data:
         return
@@ -6320,67 +6427,66 @@ def check_setup_confluence_alerts(timeframe, setups_data):
             message=f"{len(high_conf)} high-confidence setups aligned: {names}. Top composite: {best.get('composite_score', 0):.0f}.",
             timeframe=timeframe,
             data={"setup_count": len(high_conf), "setups": [s.get("type") for s in high_conf]},
+            symbol=symbol,
         )
 
 
 def alert_scan_cycle():
-    """Run all alert checks for all timeframes. Called by background thread."""
-    for tf in TIMEFRAMES:
+    """Run all alert checks for all symbols and timeframes. Called by background thread."""
+    for symbol in SYMBOLS:
+        for tf in TIMEFRAMES:
+            try:
+                conn = get_db()
+                rows = conn.execute(
+                    """SELECT timestamp, open, high, low, close FROM candles
+                       WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT 200""",
+                    (symbol, tf),
+                ).fetchall()
+                conn.close()
+
+                if len(rows) < 50:
+                    continue
+
+                rows = list(reversed(rows))
+                closes = [float(r["close"]) for r in rows]
+                highs = [float(r["high"]) for r in rows]
+                lows = [float(r["low"]) for r in rows]
+
+                # Regime shift check
+                df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close"])
+                for col in ["open", "high", "low", "close"]:
+                    df[col] = pd.to_numeric(df[col])
+                regime_data = classify_regime(df)
+                check_regime_shift_alerts(tf, regime_data, symbol=symbol)
+
+                # Compression check
+                check_compression_alerts(tf, closes, highs, lows, symbol=symbol)
+
+                # Streak exhaustion check
+                check_streak_exhaustion_alerts(tf, closes, symbol=symbol)
+
+                # Setup confluence check (only for primary timeframes)
+                if tf in ("15m", "1h", "4h"):
+                    try:
+                        setups = scan_all_setups(closes, highs, lows, regime_data)
+                        check_setup_confluence_alerts(tf, {"setups": setups}, symbol=symbol)
+                    except Exception:
+                        pass
+
+            except Exception as e:
+                log.warning(f"Alert scan error for {symbol}/{tf}: {e}")
+
+        # Time window alerts (uses tendency data from 1h per symbol)
         try:
-            conn = get_db()
-            rows = conn.execute(
-                """SELECT timestamp, open, high, low, close FROM candles
-                   WHERE timeframe=? ORDER BY timestamp DESC LIMIT 200""",
-                (tf,),
-            ).fetchall()
-            conn.close()
-
-            if len(rows) < 50:
-                continue
-
-            rows = list(reversed(rows))
-            closes = [float(r["close"]) for r in rows]
-            highs = [float(r["high"]) for r in rows]
-            lows = [float(r["low"]) for r in rows]
-
-            # Regime shift check
-            df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close"])
-            for col in ["open", "high", "low", "close"]:
-                df[col] = pd.to_numeric(df[col])
-            regime_data = classify_regime(df)
-            check_regime_shift_alerts(tf, regime_data)
-
-            # Compression check
-            check_compression_alerts(tf, closes, highs, lows)
-
-            # Streak exhaustion check
-            check_streak_exhaustion_alerts(tf, closes)
-
-            # Setup confluence check (only for primary timeframes)
-            if tf in ("15m", "1h", "4h"):
-                try:
-                    setups = scan_all_setups(closes, highs, lows, regime_data)
-                    check_setup_confluence_alerts(tf, {"setups": setups})
-                except Exception:
-                    pass
-
+            data = _get_candle_arrays("1h", limit=500, symbol=symbol)
+            if data:
+                timestamps, opens, highs, lows, closes = data
+                hourly = calc_hourly_tendency(timestamps, opens, highs, lows, closes)
+                check_time_window_alerts({"hourly": hourly}, symbol=symbol)
         except Exception as e:
-            log.warning(f"Alert scan error for {tf}: {e}")
+            log.warning(f"Time window alert error for {symbol}: {e}")
 
-    # Time window alerts (uses tendency data from 1h)
-    try:
-        data = _get_candle_arrays("1h", limit=500)
-        if data:
-            timestamps, opens, highs, lows, closes = data
-            hourly = calc_hourly_tendency(timestamps, opens, highs, lows, closes)
-            weekday = calc_weekday_tendency(timestamps, opens, highs, lows, closes)
-            session = calc_session_tendency(timestamps, opens, highs, lows, closes)
-            rolling = calc_rolling_tendency(timestamps, closes)
-            check_time_window_alerts({"hourly": hourly})
-    except Exception as e:
-        log.warning(f"Time window alert error: {e}")
-
-    # Overtrading check
+    # Overtrading check (global, not per-symbol)
     check_overtrading_alerts()
 
 
@@ -6396,46 +6502,48 @@ def alert_loop():
 
 
 def regime_update_loop():
-    """Periodically recalculate and store regime classifications."""
+    """Periodically recalculate and store regime classifications for ALL symbols."""
     while True:
         try:
             conn = get_db()
-            for tf in TIMEFRAMES:
-                rows = conn.execute(
-                    """SELECT timestamp, open, high, low, close FROM candles
-                       WHERE timeframe=? ORDER BY timestamp DESC LIMIT ?""",
-                    (tf, REGIME_CONFIG["regime_lookback"] + 50),
-                ).fetchall()
+            for symbol in SYMBOLS:
+                for tf in TIMEFRAMES:
+                    rows = conn.execute(
+                        """SELECT timestamp, open, high, low, close FROM candles
+                           WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT ?""",
+                        (symbol, tf, REGIME_CONFIG["regime_lookback"] + 50),
+                    ).fetchall()
 
-                if len(rows) < 30:
-                    continue
+                    if len(rows) < 30:
+                        continue
 
-                rows = list(reversed(rows))
-                df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close"])
-                for col in ["open", "high", "low", "close"]:
-                    df[col] = pd.to_numeric(df[col])
+                    rows = list(reversed(rows))
+                    df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close"])
+                    for col in ["open", "high", "low", "close"]:
+                        df[col] = pd.to_numeric(df[col])
 
-                regime = classify_regime(df)
-                latest_ts = rows[-1][0]  # timestamp
+                    regime = classify_regime(df)
+                    latest_ts = rows[-1][0]  # timestamp
 
-                try:
-                    conn.execute(
-                        """INSERT OR REPLACE INTO regime_history
-                           (timeframe, timestamp, regime, adx, atr_ratio, hurst, autocorrelation, confidence)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            tf,
-                            latest_ts,
-                            regime["regime"],
-                            regime["metrics"].get("adx"),
-                            regime["metrics"].get("atr_ratio"),
-                            regime["metrics"].get("hurst"),
-                            regime["metrics"].get("autocorrelation"),
-                            regime["confidence"],
-                        ),
-                    )
-                except sqlite3.IntegrityError:
-                    pass
+                    try:
+                        conn.execute(
+                            """INSERT OR REPLACE INTO regime_history
+                               (symbol, timeframe, timestamp, regime, adx, atr_ratio, hurst, autocorrelation, confidence)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                symbol,
+                                tf,
+                                latest_ts,
+                                regime["regime"],
+                                regime["metrics"].get("adx"),
+                                regime["metrics"].get("atr_ratio"),
+                                regime["metrics"].get("hurst"),
+                                regime["metrics"].get("autocorrelation"),
+                                regime["confidence"],
+                            ),
+                        )
+                    except sqlite3.IntegrityError:
+                        pass
 
             conn.commit()
             conn.close()

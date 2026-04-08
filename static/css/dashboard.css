@@ -104,6 +104,34 @@ body {
     text-transform: uppercase;
 }
 
+/* Symbol selector */
+.symbol-selector select {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--gold);
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 6px 14px;
+    cursor: pointer;
+    outline: none;
+    font-family: inherit;
+    letter-spacing: 0.04em;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23d4a843'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 28px;
+}
+.symbol-selector select:hover {
+    border-color: var(--gold);
+}
+.symbol-selector select option {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
 /* Connection badge */
 .connection-badge {
     display: flex;

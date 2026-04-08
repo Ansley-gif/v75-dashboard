@@ -13,6 +13,7 @@
     let activeTimeframe = "1h";   // primary regime timeframe
     let chartTimeframe = "15m";   // chart display timeframe
     let tendencyTimeframe = "1h"; // tendency engine timeframe (follows active)
+    let activeSymbol = "R_75";    // current symbol (default V75)
     let priceChart = null;
     let pollTimer = null;
     let tendencyData = null;      // cached tendency response
@@ -58,19 +59,37 @@
         initInterpreter();
         initExplainSystem();
         initChat();
+        initSymbolSelector();
     });
+
+    // ── Symbol Selector ───────────────────────────────────────────────
+    function initSymbolSelector() {
+        const sel = document.getElementById("symbolSelect");
+        if (!sel) return;
+        sel.addEventListener("change", () => {
+            activeSymbol = sel.value;
+            const label = document.getElementById("priceLabel");
+            if (label) label.textContent = sel.options[sel.selectedIndex].text;
+            document.title = `${sel.options[sel.selectedIndex].text} Dashboard`;
+            // Immediate re-fetch with new symbol
+            poll();
+            fetchAlerts();
+            fetchPerformance();
+        });
+    }
 
     // ── Polling ────────────────────────────────────────────────────────
     async function poll() {
         try {
+            const s = `symbol=${activeSymbol}`;
             const [status, regimes, metrics, candles, tendency, setups, setupsAll] = await Promise.all([
-                fetchJSON("/api/status"),
-                fetchJSON("/api/regime"),
-                fetchJSON(`/api/metrics/${activeTimeframe}`),
-                fetchJSON(`/api/candles/${chartTimeframe}?limit=200`),
-                fetchJSON(`/api/tendency/${activeTimeframe}`),
-                fetchJSON(`/api/setups/${activeTimeframe}`),
-                fetchJSON("/api/setups/all"),
+                fetchJSON(`/api/status?${s}`),
+                fetchJSON(`/api/regime?${s}`),
+                fetchJSON(`/api/metrics/${activeTimeframe}?${s}`),
+                fetchJSON(`/api/candles/${chartTimeframe}?limit=200&${s}`),
+                fetchJSON(`/api/tendency/${activeTimeframe}?${s}`),
+                fetchJSON(`/api/setups/${activeTimeframe}?${s}`),
+                fetchJSON(`/api/setups/all?${s}`),
             ]);
 
             updateConnection(status);
@@ -700,12 +719,12 @@
 
     async function fetchAlerts() {
         try {
-            const url = alertShowHistory ? "/api/alerts?all=1&limit=30" : "/api/alerts?limit=20";
+            const url = alertShowHistory ? `/api/alerts?all=1&limit=30&symbol=${activeSymbol}` : `/api/alerts?limit=20&symbol=${activeSymbol}`;
             const alerts = await fetchJSON(url);
             renderAlerts(alerts);
 
             // Badge count
-            const countData = await fetchJSON("/api/alerts/count");
+            const countData = await fetchJSON(`/api/alerts/count?symbol=${activeSymbol}`);
             const badge = document.getElementById("alertBadge");
             if (badge) {
                 if (countData.count > 0) {
@@ -831,7 +850,7 @@
 
         try {
             const data = await fetchJSON(
-                `/api/risk/${activeTimeframe}?balance=${balance}&risk_pct=${riskPct}&stop_type=${stopType}`
+                `/api/risk/${activeTimeframe}?balance=${balance}&risk_pct=${riskPct}&stop_type=${stopType}&symbol=${activeSymbol}`
             );
             if (data && !data.error) updateRiskPanel(data);
         } catch (e) {
@@ -1219,7 +1238,7 @@
 
     async function fetchInterpretation() {
         try {
-            const data = await fetchJSON(`/api/interpret/${activeTimeframe}`);
+            const data = await fetchJSON(`/api/interpret/${activeTimeframe}?symbol=${activeSymbol}`);
             if (data && !data.error) updateInterpreterPanel(data);
         } catch (e) {
             console.error("Interpreter fetch error:", e);
@@ -1303,7 +1322,7 @@
     // ── Meta-Analysis Banner ───────────────────────────────────────
     async function fetchMetaAnalysis() {
         try {
-            const data = await fetchJSON(`/api/meta/${activeTimeframe}`);
+            const data = await fetchJSON(`/api/meta/${activeTimeframe}?symbol=${activeSymbol}`);
             if (data && !data.error) updateMetaBanner(data);
         } catch (err) {
             console.error("Meta fetch error:", err);
