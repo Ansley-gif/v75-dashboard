@@ -160,13 +160,98 @@ def get_db():
 
 
 def _migrate_add_symbol_column():
-    """Add symbol column to existing tables. Safe to call multiple times."""
+    """Add symbol column and fix UNIQUE constraints for multi-index support.
+    Rebuilds tables if the old UNIQUE(timeframe, timestamp) constraint exists."""
     conn = get_db()
+
+    # --- Step 1: Add symbol column if missing (simple ALTER) ---
     for table in ("candles", "regime_history", "alerts"):
         cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
         if cols and "symbol" not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN symbol TEXT NOT NULL DEFAULT 'R_75'")
             log.info(f"Migrated {table}: added symbol column")
+
+    # --- Step 2: Fix candles UNIQUE constraint if it's the old 2-column version ---
+    # Check existing unique indexes on candles
+    indexes = conn.execute("PRAGMA index_list(candles)").fetchall()
+    needs_rebuild = False
+    for idx in indexes:
+        idx_name = idx[1]
+        idx_unique = idx[2]
+        if idx_unique:
+            cols_in_idx = [r[2] for r in conn.execute(f"PRAGMA index_info({idx_name})").fetchall()]
+            # Old constraint: UNIQUE(timeframe, timestamp) — only 2 columns, missing symbol
+            if set(cols_in_idx) == {"timeframe", "timestamp"}:
+                needs_rebuild = True
+                log.info(f"Found old UNIQUE(timeframe, timestamp) index '{idx_name}' — rebuilding candles table")
+                break
+
+    if needs_rebuild:
+        conn.execute("ALTER TABLE candles RENAME TO candles_old")
+        conn.execute("""
+            CREATE TABLE candles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL DEFAULT 'R_75',
+                timeframe TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                open REAL NOT NULL,
+                high REAL NOT NULL,
+                low REAL NOT NULL,
+                close REAL NOT NULL,
+                tick_count INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(symbol, timeframe, timestamp)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO candles (symbol, timeframe, timestamp, open, high, low, close, tick_count, created_at)
+            SELECT COALESCE(symbol, 'R_75'), timeframe, timestamp, open, high, low, close, tick_count, created_at
+            FROM candles_old
+        """)
+        old_count = conn.execute("SELECT COUNT(*) FROM candles_old").fetchone()[0]
+        new_count = conn.execute("SELECT COUNT(*) FROM candles").fetchone()[0]
+        conn.execute("DROP TABLE candles_old")
+        log.info(f"Rebuilt candles table with UNIQUE(symbol, timeframe, timestamp) — migrated {new_count}/{old_count} rows")
+
+    # --- Step 3: Fix regime_history UNIQUE constraint similarly ---
+    indexes = conn.execute("PRAGMA index_list(regime_history)").fetchall()
+    needs_rebuild = False
+    for idx in indexes:
+        idx_name = idx[1]
+        idx_unique = idx[2]
+        if idx_unique:
+            cols_in_idx = [r[2] for r in conn.execute(f"PRAGMA index_info({idx_name})").fetchall()]
+            if set(cols_in_idx) == {"timeframe", "timestamp"}:
+                needs_rebuild = True
+                log.info(f"Found old UNIQUE on regime_history '{idx_name}' — rebuilding")
+                break
+
+    if needs_rebuild:
+        conn.execute("ALTER TABLE regime_history RENAME TO regime_history_old")
+        conn.execute("""
+            CREATE TABLE regime_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL DEFAULT 'R_75',
+                timeframe TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                regime TEXT NOT NULL,
+                adx REAL,
+                atr_ratio REAL,
+                hurst REAL,
+                autocorrelation REAL,
+                confidence REAL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(symbol, timeframe, timestamp)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO regime_history (symbol, timeframe, timestamp, regime, adx, atr_ratio, hurst, autocorrelation, confidence, created_at)
+            SELECT COALESCE(symbol, 'R_75'), timeframe, timestamp, regime, adx, atr_ratio, hurst, autocorrelation, confidence, created_at
+            FROM regime_history_old
+        """)
+        conn.execute("DROP TABLE regime_history_old")
+        log.info("Rebuilt regime_history table with UNIQUE(symbol, timeframe, timestamp)")
+
     conn.commit()
     conn.close()
 
