@@ -80,7 +80,25 @@ TIMEFRAMES = {
     "15m": 900,
     "1h": 3600,
     "4h": 14400,
+    "1d": 86400,
 }
+
+# Per-timeframe historical depth fetched from Deriv on startup.
+# Deeper history = more reliable tendency buckets (seasonal analysis needs years, not weeks).
+# 5000 is Deriv's per-request cap for candles.
+HISTORY_DEPTH = {
+    "1m": 5000,    # ~3.5 days
+    "5m": 5000,    # ~17 days
+    "15m": 5000,   # ~52 days
+    "1h": 5000,    # ~7 months
+    "4h": 5000,    # ~2.3 years — primary HTF seasonal substrate
+    "1d": 5000,    # ~13.7 years (capped at synthetic age) — deep HTF seasonal
+}
+
+# Timeframes used by alert scanning, regime updates, and meta-analysis.
+# Daily is intentionally EXCLUDED until the HTF tendency functions are verified
+# on real data — we don't want daily-driven signals firing into Telegram yet.
+ALERT_TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h")
 
 # Regime classification thresholds
 REGIME_CONFIG = {
@@ -998,6 +1016,27 @@ def calc_weekday_tendency(timestamps, opens, highs, lows, closes):
     )
 
 
+def calc_weekly_tendency(timestamps, opens, highs, lows, closes):
+    """Profile each week within a month (W1-W5).
+    Captures intra-month seasonal rhythm — e.g. 'first week of the month
+    behaves differently from the last week'. More statistically robust
+    than week-of-year because each bucket accumulates many samples."""
+    labels = {
+        1: "W1 (days 1-7)",
+        2: "W2 (days 8-14)",
+        3: "W3 (days 15-21)",
+        4: "W4 (days 22-28)",
+        5: "W5 (days 29+)",
+    }
+    def week_of_month(dt):
+        return min(5, (dt.day - 1) // 7 + 1)
+    return _bucket_candle_stats(
+        timestamps, opens, highs, lows, closes,
+        bucket_fn=week_of_month,
+        bucket_labels=labels,
+    )
+
+
 def calc_monthly_tendency(timestamps, opens, highs, lows, closes):
     """
     Seasonal tendency per calendar month — statistical replacement for
@@ -1161,10 +1200,86 @@ def calc_rolling_tendency(timestamps, closes, windows=(20, 40, 60)):
     return results
 
 
-def calc_current_tendency_summary(hourly, weekday, session, rolling):
+def _bucket_bias(profile, min_samples=3):
+    """Classify a single bucket profile as bullish/bearish/neutral.
+    Requires minimum sample size for statistical meaning."""
+    if not profile or profile.get("sample_size", 0) < min_samples:
+        return None
+    bull = profile.get("bullish_pct", 0)
+    bear = profile.get("bearish_pct", 0)
+    if bull > 55:
+        return "bullish"
+    if bear > 55:
+        return "bearish"
+    return "neutral"
+
+
+def calc_htf_bias(weekly, monthly, quarterly):
+    """Compute the higher-timeframe seasonal bias layer.
+    Looks at the current week-of-month, calendar month, and quarter and returns
+    a consolidated HTF directional lean with confidence."""
+    now = datetime.now(timezone.utc)
+    cur_week = min(5, (now.day - 1) // 7 + 1)
+    cur_month = now.month
+    cur_quarter = (now.month - 1) // 3 + 1
+
+    week_profile = None
+    month_profile = None
+    quarter_profile = None
+
+    if weekly:
+        week_profile = next((w for w in weekly if w["bucket"] == cur_week), None)
+    if monthly:
+        month_profile = next((m for m in monthly if m["bucket"] == cur_month), None)
+    if quarterly and "quarterly" in quarterly:
+        quarter_profile = next((q for q in quarterly["quarterly"] if q["bucket"] == cur_quarter), None)
+
+    biases = []
+    samples_total = 0
+    for p in (week_profile, month_profile, quarter_profile):
+        b = _bucket_bias(p, min_samples=5)
+        if b is not None:
+            biases.append(b)
+            samples_total += p.get("sample_size", 0)
+
+    bullish = biases.count("bullish")
+    bearish = biases.count("bearish")
+    total = len(biases)
+
+    if total == 0:
+        htf_direction = "unknown"
+        htf_strength = 0
+    elif bullish > bearish:
+        htf_direction = "bullish"
+        htf_strength = round(bullish / total, 2)
+    elif bearish > bullish:
+        htf_direction = "bearish"
+        htf_strength = round(bearish / total, 2)
+    else:
+        htf_direction = "neutral"
+        htf_strength = 0
+
+    return {
+        "direction": htf_direction,
+        "strength": htf_strength,
+        "current_week": week_profile,
+        "current_month": month_profile,
+        "current_quarter": quarter_profile,
+        "component_biases": biases,
+        "components_available": total,
+        "total_samples": samples_total,
+    }
+
+
+def calc_current_tendency_summary(hourly, weekday, session, rolling,
+                                   weekly=None, monthly=None, quarterly=None):
     """
     Synthesize all tendency data into a single actionable summary:
     'Right now, what does the tendency data say?'
+
+    LTF layer (hourly/weekday/session/rolling) drives `tendency` + `tendency_strength`.
+    HTF layer (weekly/monthly/quarterly) is returned separately as `htf_bias` and
+    also merged into `alignment` so callers can see if LTF and HTF agree.
     """
     now = datetime.now(timezone.utc)
     current_hour = now.hour
@@ -1210,7 +1325,7 @@ def calc_current_tendency_summary(hourly, weekday, session, rolling):
     # Rolling momentum consensus
     rolling_dirs = [v["direction"] for v in rolling.values()]
 
-    # Overall tendency
+    # Overall LTF tendency
     bullish_votes = biases.count("bullish") + rolling_dirs.count("bullish")
     bearish_votes = biases.count("bearish") + rolling_dirs.count("bearish")
     total_votes = len(biases) + len(rolling_dirs)
@@ -1228,6 +1343,21 @@ def calc_current_tendency_summary(hourly, weekday, session, rolling):
         tendency = "neutral"
         tendency_strength = 0
 
+    # HTF bias layer (seasonal — weekly/monthly/quarterly)
+    htf_bias = calc_htf_bias(weekly, monthly, quarterly)
+
+    # LTF vs HTF alignment — a critical filter for ICT-style trading
+    htf_dir = htf_bias["direction"]
+    if htf_dir in ("unknown", "neutral") or tendency == "neutral":
+        alignment_state = "no_htf_context" if htf_dir in ("unknown", "neutral") else "ltf_neutral"
+        alignment_ok = None
+    elif tendency == htf_dir:
+        alignment_state = "aligned"
+        alignment_ok = True
+    else:
+        alignment_state = "conflict"
+        alignment_ok = False
+
     return {
         "current_hour": hour_profile,
         "current_day": day_profile,
@@ -1241,6 +1371,13 @@ def calc_current_tendency_summary(hourly, weekday, session, rolling):
             "rolling_biases": rolling_dirs,
             "bullish_votes": bullish_votes,
             "bearish_votes": bearish_votes,
+        },
+        "htf_bias": htf_bias,
+        "alignment": {
+            "state": alignment_state,
+            "aligned": alignment_ok,
+            "ltf": tendency,
+            "htf": htf_dir,
         },
     }
 
@@ -2996,24 +3133,19 @@ class DerivDataService:
                 retry_delay = min(retry_delay * 2, 60)
 
     async def _fetch_history(self, ws):
-        """Fetch historical candle data for all symbols and timeframes."""
-        # Map our timeframes to Deriv's granularity values
-        tf_to_granularity = {
-            "1m": 60,
-            "5m": 300,
-            "15m": 900,
-            "1h": 3600,
-            "4h": 14400,
-        }
+        """Fetch historical candle data for all symbols and timeframes.
 
+        Uses HISTORY_DEPTH per timeframe. For deep history on HTF (4h, 1d) we rely on
+        Deriv serving as much as is available for the synthetic (V75/etc may have <5000
+        daily candles depending on when they launched — we take whatever is returned)."""
         for sym in SYMBOLS:
-            for tf, granularity in tf_to_granularity.items():
+            for tf, granularity in TIMEFRAMES.items():
+                desired = HISTORY_DEPTH.get(tf, 500)
                 try:
-                    # Request last 500 candles
                     hist_msg = {
                         "ticks_history": sym,
                         "adjust_start_time": 1,
-                        "count": 500,
+                        "count": desired,
                         "end": "latest",
                         "granularity": granularity,
                         "style": "candles",
@@ -3025,23 +3157,50 @@ class DerivDataService:
                     if "candles" in data:
                         candles = data["candles"]
                         conn = get_db()
+                        inserted = 0
                         for c in candles:
                             try:
-                                conn.execute(
+                                cur = conn.execute(
                                     """INSERT OR IGNORE INTO candles
                                        (symbol, timeframe, timestamp, open, high, low, close)
                                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
                                     (sym, tf, c["epoch"], c["open"], c["high"], c["low"], c["close"]),
                                 )
+                                if cur.rowcount:
+                                    inserted += 1
                             except sqlite3.IntegrityError:
                                 pass
                         conn.commit()
                         conn.close()
-                        log.info(f"Loaded {len(candles)} historical {tf} candles for {sym}")
+                        log.info(f"Loaded {len(candles)} historical {tf} candles for {sym} ({inserted} new)")
                     elif "error" in data:
-                        log.warning(f"History error for {sym}/{tf}: {data['error'].get('message')}")
+                        err = data["error"].get("message", "unknown")
+                        # If Deriv rejects the large count, retry with 500 as a floor
+                        if desired > 500 and ("count" in err.lower() or "max" in err.lower()):
+                            log.warning(f"{sym}/{tf}: count={desired} rejected ({err}), falling back to 500")
+                            hist_msg["count"] = 500
+                            await ws.send(json.dumps(hist_msg))
+                            resp2 = await ws.recv()
+                            data2 = json.loads(resp2)
+                            if "candles" in data2:
+                                conn = get_db()
+                                for c in data2["candles"]:
+                                    try:
+                                        conn.execute(
+                                            """INSERT OR IGNORE INTO candles
+                                               (symbol, timeframe, timestamp, open, high, low, close)
+                                               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                            (sym, tf, c["epoch"], c["open"], c["high"], c["low"], c["close"]),
+                                        )
+                                    except sqlite3.IntegrityError:
+                                        pass
+                                conn.commit()
+                                conn.close()
+                                log.info(f"Loaded {len(data2['candles'])} historical {tf} candles for {sym} (fallback)")
+                        else:
+                            log.warning(f"History error for {sym}/{tf}: {err}")
 
-                    await asyncio.sleep(0.3)  # avoid rate-limiting between fetches
+                    await asyncio.sleep(0.4)  # avoid rate-limiting between fetches
 
                 except Exception as e:
                     log.error(f"Failed to fetch {sym}/{tf} history: {e}")
@@ -3346,52 +3505,93 @@ def _get_candle_arrays(timeframe, limit=500, symbol=None):
     return timestamps, opens, highs, lows, closes
 
 
+def _compute_htf_tendency(symbol):
+    """Compute weekly/monthly/quarterly tendency on the best available HTF substrate.
+
+    Prefers 1d (deep seasonal coverage, years of samples); falls back to 4h if 1d
+    isn't deep enough yet (e.g., first few minutes after startup before daily data
+    has been fetched). This is the directional bias layer — intentionally separate
+    from the LTF tendency on the user's viewing timeframe.
+
+    Returns (weekly, monthly, quarterly, substrate_name) or (None, None, None, None).
+    """
+    for htf in ("1d", "4h"):
+        data = _get_candle_arrays(htf, limit=HISTORY_DEPTH.get(htf, 5000), symbol=symbol)
+        if data and len(data[0]) >= 60:
+            ts, op, hi, lo, cl = data
+            try:
+                weekly = calc_weekly_tendency(ts, op, hi, lo, cl)
+                monthly = calc_monthly_tendency(ts, op, hi, lo, cl)
+                quarterly = calc_quarterly_tendency(ts, op, hi, lo, cl)
+                return weekly, monthly, quarterly, htf
+            except Exception as e:
+                log.warning(f"HTF tendency calc failed on {htf} for {symbol}: {e}")
+    return None, None, None, None
+
+
 @app.route("/api/tendency/<timeframe>")
 def api_tendency(timeframe):
     """
     Full tendency engine output for a timeframe.
-    Returns hourly, weekday, monthly, quarterly, session profiles
-    plus rolling momentum and a synthesized summary.
+    Returns hourly, weekday, weekly, monthly, quarterly, session profiles plus
+    rolling momentum and a synthesized summary that includes an HTF bias layer
+    computed from daily (or 4h fallback) candles.
     """
     if timeframe not in TIMEFRAMES:
         return jsonify({"error": f"Invalid timeframe: {timeframe}"}), 400
 
     symbol = get_request_symbol()
-    data = _get_candle_arrays(timeframe, limit=500, symbol=symbol)
+    # Pull full available history for this TF — seasonal buckets need depth
+    limit = HISTORY_DEPTH.get(timeframe, 5000)
+    data = _get_candle_arrays(timeframe, limit=limit, symbol=symbol)
     if data is None:
         return jsonify({"error": "Insufficient data", "candle_count": 0})
 
     timestamps, opens, highs, lows, closes = data
 
+    # LTF layer — computed from the requested timeframe
     hourly = calc_hourly_tendency(timestamps, opens, highs, lows, closes)
     weekday = calc_weekday_tendency(timestamps, opens, highs, lows, closes)
-    monthly = calc_monthly_tendency(timestamps, opens, highs, lows, closes)
-    quarterly = calc_quarterly_tendency(timestamps, opens, highs, lows, closes)
+    weekly_ltf = calc_weekly_tendency(timestamps, opens, highs, lows, closes)
+    monthly_ltf = calc_monthly_tendency(timestamps, opens, highs, lows, closes)
+    quarterly_ltf = calc_quarterly_tendency(timestamps, opens, highs, lows, closes)
     session = calc_session_tendency(timestamps, opens, highs, lows, closes)
     rolling = calc_rolling_tendency(timestamps, closes)
-    summary = calc_current_tendency_summary(hourly, weekday, session, rolling)
+
+    # HTF bias layer — always computed from daily (or 4h fallback)
+    # This is the statistical cleanest substrate for seasonal direction,
+    # independent of whatever timeframe the user is currently viewing.
+    htf_weekly, htf_monthly, htf_quarterly, htf_substrate = _compute_htf_tendency(symbol)
+
+    summary = calc_current_tendency_summary(
+        hourly, weekday, session, rolling,
+        weekly=htf_weekly, monthly=htf_monthly, quarterly=htf_quarterly,
+    )
 
     return jsonify({
         "timeframe": timeframe,
         "candle_count": len(closes),
         "hourly": hourly,
         "weekday": weekday,
-        "monthly": monthly,
-        "quarterly": quarterly,
+        "weekly": weekly_ltf,       # LTF texture — how this TF behaves by week-of-month
+        "monthly": monthly_ltf,     # LTF texture — how this TF behaves by calendar month
+        "quarterly": quarterly_ltf, # LTF texture — how this TF behaves by quarter
         "session": session,
         "rolling": rolling,
         "summary": summary,
+        "htf_substrate": htf_substrate,  # "1d", "4h", or None — what fed the bias layer
     })
 
 
 @app.route("/api/tendency/summary/<timeframe>")
 def api_tendency_summary(timeframe):
-    """Lightweight summary — just the current window's tendency verdict."""
+    """Lightweight summary — just the current window's tendency verdict plus HTF bias."""
     if timeframe not in TIMEFRAMES:
         return jsonify({"error": f"Invalid timeframe: {timeframe}"}), 400
 
     symbol = get_request_symbol()
-    data = _get_candle_arrays(timeframe, limit=500, symbol=symbol)
+    limit = HISTORY_DEPTH.get(timeframe, 5000)
+    data = _get_candle_arrays(timeframe, limit=limit, symbol=symbol)
     if data is None:
         return jsonify({"error": "Insufficient data"})
 
@@ -3401,7 +3601,13 @@ def api_tendency_summary(timeframe):
     weekday = calc_weekday_tendency(timestamps, opens, highs, lows, closes)
     session = calc_session_tendency(timestamps, opens, highs, lows, closes)
     rolling = calc_rolling_tendency(timestamps, closes)
-    summary = calc_current_tendency_summary(hourly, weekday, session, rolling)
+
+    htf_weekly, htf_monthly, htf_quarterly, _ = _compute_htf_tendency(symbol)
+
+    summary = calc_current_tendency_summary(
+        hourly, weekday, session, rolling,
+        weekly=htf_weekly, monthly=htf_monthly, quarterly=htf_quarterly,
+    )
 
     return jsonify(summary)
 
@@ -4682,14 +4888,18 @@ def api_interpret(timeframe):
         # 2. Get tendency summary (BUG FIX: use real function chain)
         tendency_summary = None
         try:
-            data = _get_candle_arrays(timeframe, limit=500, symbol=symbol)
+            data = _get_candle_arrays(timeframe, limit=HISTORY_DEPTH.get(timeframe, 5000), symbol=symbol)
             if data:
                 ts, op, hi, lo, cl = data
                 hourly = calc_hourly_tendency(ts, op, hi, lo, cl)
                 weekday = calc_weekday_tendency(ts, op, hi, lo, cl)
                 session = calc_session_tendency(ts, op, hi, lo, cl)
                 rolling = calc_rolling_tendency(ts, cl)
-                tendency_summary = calc_current_tendency_summary(hourly, weekday, session, rolling)
+                htf_w, htf_m, htf_q, _ = _compute_htf_tendency(symbol)
+                tendency_summary = calc_current_tendency_summary(
+                    hourly, weekday, session, rolling,
+                    weekly=htf_w, monthly=htf_m, quarterly=htf_q,
+                )
         except Exception:
             pass
 
@@ -4761,14 +4971,18 @@ def api_meta(timeframe):
         # BUG FIX: Use actual tendency function chain (calc_tendency_analysis didn't exist)
         tendency_summary = None
         try:
-            data = _get_candle_arrays(timeframe, limit=500, symbol=symbol)
+            data = _get_candle_arrays(timeframe, limit=HISTORY_DEPTH.get(timeframe, 5000), symbol=symbol)
             if data:
                 timestamps, opens_t, highs_t, lows_t, closes_t = data
                 hourly = calc_hourly_tendency(timestamps, opens_t, highs_t, lows_t, closes_t)
                 weekday = calc_weekday_tendency(timestamps, opens_t, highs_t, lows_t, closes_t)
                 session = calc_session_tendency(timestamps, opens_t, highs_t, lows_t, closes_t)
                 rolling = calc_rolling_tendency(timestamps, closes_t)
-                tendency_summary = calc_current_tendency_summary(hourly, weekday, session, rolling)
+                htf_w, htf_m, htf_q, _ = _compute_htf_tendency(symbol)
+                tendency_summary = calc_current_tendency_summary(
+                    hourly, weekday, session, rolling,
+                    weekly=htf_w, monthly=htf_m, quarterly=htf_q,
+                )
         except Exception:
             pass
 
@@ -4878,14 +5092,18 @@ def _gather_live_state(timeframe):
 
             # Tendency (BUG FIX: use real function chain, not non-existent calc_tendency_analysis)
             try:
-                data = _get_candle_arrays(timeframe, limit=500)
+                data = _get_candle_arrays(timeframe, limit=HISTORY_DEPTH.get(timeframe, 5000))
                 if data:
                     ts, op, hi, lo, cl = data
                     hourly = calc_hourly_tendency(ts, op, hi, lo, cl)
                     weekday = calc_weekday_tendency(ts, op, hi, lo, cl)
                     session = calc_session_tendency(ts, op, hi, lo, cl)
                     rolling = calc_rolling_tendency(ts, cl)
-                    state["tendency"] = calc_current_tendency_summary(hourly, weekday, session, rolling)
+                    htf_w, htf_m, htf_q, _ = _compute_htf_tendency(DEFAULT_SYMBOL)
+                    state["tendency"] = calc_current_tendency_summary(
+                        hourly, weekday, session, rolling,
+                        weekly=htf_w, monthly=htf_m, quarterly=htf_q,
+                    )
             except Exception:
                 pass
 
@@ -5340,13 +5558,54 @@ def _build_agent_context(timeframe="1h"):
         t_bias = tendency.get("tendency", "neutral")
         t_strength = tendency.get("tendency_strength", 0)
         t_quality = tendency.get("window_quality", 0)
-        ctx_parts.append(f"\n[TENDENCY] {t_bias.upper()} — strength {t_strength:.0%}, quality {t_quality:.2f}")
+        ctx_parts.append(f"\n[TENDENCY LTF] {t_bias.upper()} — strength {t_strength:.0%}, quality {t_quality:.2f}")
         # Consensus detail
         consensus = tendency.get("consensus_detail", {})
         if consensus:
             ctx_parts.append(f"  Votes: {consensus.get('bullish_votes', 0)} bullish, {consensus.get('bearish_votes', 0)} bearish")
             ctx_parts.append(f"  Time biases: {consensus.get('time_biases', [])}")
             ctx_parts.append(f"  Rolling biases: {consensus.get('rolling_biases', [])}")
+
+        # HTF bias layer (seasonal — daily or 4h substrate)
+        htf = tendency.get("htf_bias", {})
+        if htf and htf.get("components_available", 0) > 0:
+            ctx_parts.append(
+                f"\n[TENDENCY HTF] {htf.get('direction', 'unknown').upper()} — "
+                f"strength {htf.get('strength', 0):.0%}, "
+                f"components {htf.get('components_available', 0)}/3"
+            )
+            cur_m = htf.get("current_month")
+            if cur_m:
+                ctx_parts.append(
+                    f"  This month ({cur_m.get('label', '?')}): "
+                    f"bullish {cur_m.get('bullish_pct', 0):.0f}% / bearish {cur_m.get('bearish_pct', 0):.0f}% "
+                    f"(n={cur_m.get('sample_size', 0)})"
+                )
+            cur_q = htf.get("current_quarter")
+            if cur_q:
+                ctx_parts.append(
+                    f"  This quarter ({cur_q.get('label', '?')}): "
+                    f"bullish {cur_q.get('bullish_pct', 0):.0f}% / bearish {cur_q.get('bearish_pct', 0):.0f}% "
+                    f"(n={cur_q.get('sample_size', 0)})"
+                )
+            cur_w = htf.get("current_week")
+            if cur_w:
+                ctx_parts.append(
+                    f"  This week-of-month ({cur_w.get('label', '?')}): "
+                    f"bullish {cur_w.get('bullish_pct', 0):.0f}% / bearish {cur_w.get('bearish_pct', 0):.0f}% "
+                    f"(n={cur_w.get('sample_size', 0)})"
+                )
+
+        # LTF/HTF alignment — critical for entry conviction
+        align = tendency.get("alignment", {})
+        if align:
+            state = align.get("state", "unknown")
+            if state == "aligned":
+                ctx_parts.append(f"  [ALIGNMENT] ✓ LTF ({align.get('ltf')}) and HTF ({align.get('htf')}) agree — high-conviction zone")
+            elif state == "conflict":
+                ctx_parts.append(f"  [ALIGNMENT] ⚠ LTF ({align.get('ltf')}) CONFLICTS with HTF ({align.get('htf')}) — fade or stand aside")
+            elif state == "no_htf_context":
+                ctx_parts.append(f"  [ALIGNMENT] HTF bias unavailable — decide on LTF alone")
 
     # Setups
     setup_list = setups.get("setups", []) if isinstance(setups, dict) else []
@@ -6517,9 +6776,11 @@ def check_setup_confluence_alerts(timeframe, setups_data, symbol=None):
 
 
 def alert_scan_cycle():
-    """Run all alert checks for all symbols and timeframes. Called by background thread."""
+    """Run all alert checks for all symbols and timeframes. Called by background thread.
+    NOTE: Iterates ALERT_TIMEFRAMES, not TIMEFRAMES — 1d is intentionally excluded
+    until HTF tendency functions are verified on real data."""
     for symbol in SYMBOLS:
-        for tf in TIMEFRAMES:
+        for tf in ALERT_TIMEFRAMES:
             try:
                 conn = get_db()
                 rows = conn.execute(
@@ -6587,12 +6848,14 @@ def alert_loop():
 
 
 def regime_update_loop():
-    """Periodically recalculate and store regime classifications for ALL symbols."""
+    """Periodically recalculate and store regime classifications for ALL symbols.
+    Iterates ALERT_TIMEFRAMES — 1d regime classification is not computed here
+    (HTF tendency is computed on-demand in the tendency endpoint)."""
     while True:
         try:
             conn = get_db()
             for symbol in SYMBOLS:
-                for tf in TIMEFRAMES:
+                for tf in ALERT_TIMEFRAMES:
                     rows = conn.execute(
                         """SELECT timestamp, open, high, low, close FROM candles
                            WHERE symbol=? AND timeframe=? ORDER BY timestamp DESC LIMIT ?""",
