@@ -161,7 +161,7 @@
     // ── Regime Panel ───────────────────────────────────────────────────
     function updateRegimePanel(regimes) {
         // Update multi-timeframe strip
-        const tfKeys = ["1m", "5m", "15m", "1h", "4h"];
+        const tfKeys = ["1m", "5m", "15m", "1h", "4h", "1d"];
         for (const tf of tfKeys) {
             const data = regimes[tf];
             const dot = document.getElementById(`dot-${tf}`);
@@ -646,7 +646,7 @@
         const container = document.getElementById("mtfItems");
         if (!container) return;
 
-        const timeframes = ["1m", "5m", "15m", "1h", "4h"];
+        const timeframes = ["1m", "5m", "15m", "1h", "4h", "1d"];
 
         container.innerHTML = timeframes.map(tf => {
             const d = allData[tf];
