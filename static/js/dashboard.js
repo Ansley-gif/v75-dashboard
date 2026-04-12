@@ -404,6 +404,49 @@
         const q = summary.window_quality;
         qualEl.textContent = q >= 0.6 ? "HIGH" : q >= 0.35 ? "MED" : "LOW";
         qualEl.className = `ctx-value ${q >= 0.6 ? "bullish" : q >= 0.35 ? "" : "bearish"}`;
+
+        // HTF Bias row (always from daily candles)
+        const htf = summary.htf_bias;
+        const align = summary.alignment;
+        const htfRow = document.getElementById("htfBiasRow");
+        if (htfRow && htf) {
+            // Main direction
+            const dirEl = document.getElementById("htfDirection");
+            dirEl.textContent = htf.direction ? htf.direction.toUpperCase() : "—";
+            dirEl.className = `htf-direction ${htf.direction || "unknown"}`;
+
+            // Monthly / Weekly / Quarterly breakdowns (profiles with bullish_pct)
+            const setHtfDetail = (id, profile) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (!profile || !profile.sample_size) { el.textContent = "—"; el.className = "ctx-value"; return; }
+                const bull = profile.bullish_pct;
+                if (bull > 55) { el.textContent = `${bull.toFixed(0)}% Bull`; el.className = "ctx-value bullish"; }
+                else if (bull < 45) { el.textContent = `${(100 - bull).toFixed(0)}% Bear`; el.className = "ctx-value bearish"; }
+                else { el.textContent = "Neutral"; el.className = "ctx-value"; }
+            };
+            setHtfDetail("htfMonthly", htf.current_month);
+            setHtfDetail("htfWeekly", htf.current_week);
+            setHtfDetail("htfQuarterly", htf.current_quarter);
+
+            // Alignment badge
+            const alignEl = document.getElementById("htfAlignment");
+            if (align) {
+                if (align.state === "aligned") {
+                    alignEl.textContent = "ALIGNED";
+                    alignEl.className = "htf-alignment-badge aligned";
+                } else if (align.state === "conflict") {
+                    alignEl.textContent = "CONFLICT";
+                    alignEl.className = "htf-alignment-badge conflict";
+                } else {
+                    alignEl.textContent = align.state === "ltf_neutral" ? "LTF NEUTRAL" : "NO HTF DATA";
+                    alignEl.className = "htf-alignment-badge no-context";
+                }
+            }
+            htfRow.style.display = "";
+        } else if (htfRow) {
+            htfRow.style.display = "none";
+        }
     }
 
     // Hourly heatmap
