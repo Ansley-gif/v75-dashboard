@@ -1,0 +1,671 @@
+C:\Users\User\Desktop\v75-dashboard\MT5_Files\PatternScanner.py:103: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  oldest_dt = datetime.utcfromtimestamp(bars[0]["epoch"]).strftime("%Y-%m-%d")
+C:\Users\User\Desktop\v75-dashboard\MT5_Files\PatternScanner.py:122: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  f"({datetime.utcfromtimestamp(unique[0]['epoch']).strftime('%Y-%m-%d')} \u2192 "
+C:\Users\User\Desktop\v75-dashboard\MT5_Files\PatternScanner.py:123: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  f"{datetime.utcfromtimestamp(unique[-1]['epoch']).strftime('%Y-%m-%d')})\n")
+C:\Users\User\Desktop\v75-dashboard\MT5_Files\PatternScanner.py:131: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  def _hour(epoch):   return datetime.utcfromtimestamp(epoch).hour
+C:\Users\User\Desktop\v75-dashboard\MT5_Files\PatternScanner.py:134: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  def _date(epoch):   return datetime.utcfromtimestamp(epoch).strftime("%Y-%m-%d")
+C:\Users\User\Desktop\v75-dashboard\MT5_Files\PatternScanner.py:133: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  def _dow(epoch):    return datetime.utcfromtimestamp(epoch).weekday()   # 0=Mon
+C:\Users\User\Desktop\v75-dashboard\MT5_Files\PatternScanner.py:132: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  def _minute(epoch): return datetime.utcfromtimestamp(epoch).minute
+C:\Users\User\Desktop\v75-dashboard\MT5_Files\PatternScanner.py:135: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  def _month(epoch):  return datetime.utcfromtimestamp(epoch).strftime("%Y-%m")
+
++---------------------------------------------------------------------+
+|  ICT Pattern Scanner — BROKER-REALISTIC SIM  (auto-loaded preset)   
++---------------------------------------------------------------------+
+|  Symbol         : R_25             History       : 1.0 year(s)
+|  Configured SL  : 500    ticks    Configured TP : 940    ticks
+|  Spread         : 137    ticks    Stops level   : 423    ticks
+|  Slippage       : 2      ticks    Point         : 0.001
+|  ────────────────────────────────────────────────────────────────── |
+|  Broker SL      : 707    ticks    (actual ticks lost per stop)
+|  Sim SL dist    : 568    ticks    Sim TP dist   : 1079   ticks
+|  $ R:R          : 1.330             1R = 707 ticks (broker fill)
++---------------------------------------------------------------------+
+Fetching ≈105,120 M5 bars (1.0 yr) for R_25…
+  Batch 1/22: 4900 bars  oldest=2026-05-09
+  Batch 2/22: 4900 bars  oldest=2026-04-22
+  Batch 3/22: 4900 bars  oldest=2026-04-05
+  Batch 4/22: 4900 bars  oldest=2026-03-19
+  Batch 5/22: 4900 bars  oldest=2026-03-02
+  Batch 6/22: 4900 bars  oldest=2026-02-13
+  Batch 7/22: 4900 bars  oldest=2026-01-27
+  Batch 8/22: 4900 bars  oldest=2026-01-10
+  Batch 9/22: 4900 bars  oldest=2025-12-24
+  Batch 10/22: 4900 bars  oldest=2025-12-07
+  Batch 11/22: 4900 bars  oldest=2025-11-20
+  Batch 12/22: 4900 bars  oldest=2025-11-03
+  Batch 13/22: 4900 bars  oldest=2025-10-17
+  Batch 14/22: 4900 bars  oldest=2025-09-30
+  Batch 15/22: 4897 bars  oldest=2025-09-13
+  Reached history limit.
+Total unique bars: 73,497  (2025-09-13 → 2026-05-26)
+
+Running pattern scans…
+
+  1. SESSION H/L BREAKOUT                       1141 signals  (1141 completed)
+  2. LONDON BREAKOUT OF ASIAN RANGE              144 signals  (142 completed)
+  3. NY OPEN REVERSAL  (Judas Swing)             255 signals  (255 completed)
+  4. OPENING RANGE BREAKOUT  (30-min)           1237 signals  (1236 completed)
+  5. CONSOLIDATION SQUEEZE BREAKOUT                0 signals  (0 completed)
+  6. PREVIOUS SESSION LEVEL RUN                  694 signals  (694 completed)
+  7A. OPEN+CLOSE CANDLE — SL=candle extreme     2870 signals  (2870 completed)
+  7B. OPEN+CLOSE CANDLE — SL=fixed ticks        2870 signals  (2870 completed)
+  7C. OPEN+CLOSE CANDLE — SL=tighter of (candle, fixed)  2870 signals  (2870 completed)
+  8.  OC BOX FLIP — close-flip + hard SL (mult=1.0)  85901 signals  (84374 completed)
+  9.  OC + ICT SESSIONS, M5 trigger, fixed SL   2849 signals  (2849 completed)
+  10. OC + ICT SESSIONS, H1 trigger, fixed SL   2625 signals  (2625 completed)
+
+[$-frame remap] 1R = 707 ticks, win = +1.330R (for fixed-SL patterns; variable SL = per-trade calc)
+
+══════════════════════════════════════════════════════════════════
+  1. SESSION H/L BREAKOUT
+══════════════════════════════════════════════════════════════════
+  Completed : 1141   Wins: 300   Losses: 841   Still open: 0
+  Win rate  :  26.3%
+  Avg R/win : 1.33R
+  Expectancy: -0.387R per trade  (NEGATIVE ✗)
+  Avg hold  : 1.0 bars  (5 min)
+
+  ┌─ By Session ─────────────────────────────────┐
+  │  ASIAN      21.0%  (79/376)
+  │  LONDON     27.4%  (105/383)
+  │  NY         30.4%  (116/382)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Direction ───────────────────────────────┐
+  │  BUY     24.7%  (139/562)
+  │  SELL    27.8%  (161/579)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Day of Week ─────────────────────────────┐
+  │  Mon      30.0%  (51/170)
+  │  Tue      25.8%  (42/163)
+  │  Wed      32.7%  (51/156)
+  │  Thu      18.9%  (30/159)
+  │  Fri      27.5%  (44/160)
+  │  Sat      23.0%  (37/161)
+  │  Sun      26.2%  (45/172)
+  └──────────────────────────────────────────────┘
+
+  ┌─ Best Hours UTC (min 5 trades) ─────────────┐
+  │  19:00   57.1%  █████       n=7
+  │  12:00   40.0%  ████        n=15
+  │  13:00   40.0%  ████        n=15
+  │  15:00   38.5%  ███         n=78
+  │  20:00   38.5%  ███         n=13
+  │  05:00   33.3%  ███         n=21
+  │  14:00   32.0%  ███         n=225
+  │  11:00   31.4%  ███         n=35
+  └──────────────────────────────────────────────┘
+
+  ┌─ Monthly breakdown ─────────────────────────┐
+  │  2025-09   26.2%  ▓▓          Net R: -31.08  n=80
+  │  2025-10   28.2%  ▓▓          Net R: -48.82  n=142
+  │  2025-11   25.9%  ▓▓          Net R: -53.47  n=135
+  │  2025-12   29.7%  ▓▓          Net R: -42.49  n=138
+  │  2026-01   26.3%  ▓▓          Net R: -53.14  n=137
+  │  2026-02   24.6%  ▓▓          Net R: -50.44  n=118
+  │  2026-03   26.4%  ▓▓          Net R: -55.48  n=144
+  │  2026-04   23.9%  ▓▓          Net R: -61.12  n=138
+  │  2026-05   24.8%  ▓▓          Net R: -46.10  n=109
+  └──────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════════
+  2. LONDON BREAKOUT OF ASIAN RANGE
+══════════════════════════════════════════════════════════════════
+  Completed :  142   Wins: 137   Losses: 5   Still open: 2
+  Win rate  :  96.5%
+  Avg R/win : 0.03R
+  Expectancy: -0.006R per trade  (NEGATIVE ✗)
+  Avg hold  : 7.0 bars  (35 min)
+
+  ┌─ By Session ─────────────────────────────────┐
+  │  LONDON     96.5%  (137/142)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Direction ───────────────────────────────┐
+  │  BUY     95.4%  (62/65)
+  │  SELL    97.4%  (75/77)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Day of Week ─────────────────────────────┐
+  │  Mon      94.7%  (18/19)
+  │  Tue     100.0%  (20/20)
+  │  Wed      90.9%  (20/22)
+  │  Thu      96.0%  (24/25)
+  │  Fri      95.0%  (19/20)
+  │  Sat     100.0%  (18/18)
+  │  Sun     100.0%  (18/18)
+  └──────────────────────────────────────────────┘
+
+  ┌─ Best Hours UTC (min 5 trades) ─────────────┐
+  │  09:00   97.7%  █████████   n=44
+  │  08:00   95.9%  █████████   n=98
+  └──────────────────────────────────────────────┘
+
+  ┌─ Monthly breakdown ─────────────────────────┐
+  │  2025-09   83.3%  ▓▓▓▓▓▓▓▓    Net R:  -1.67  n=12
+  │  2025-10   93.8%  ▓▓▓▓▓▓▓▓▓   Net R:  -0.51  n=16
+  │  2025-11  100.0%  ▓▓▓▓▓▓▓▓▓▓  Net R:  +0.56  n=18
+  │  2025-12  100.0%  ▓▓▓▓▓▓▓▓▓▓  Net R:  +0.61  n=17
+  │  2026-01   92.3%  ▓▓▓▓▓▓▓▓▓   Net R:  -0.61  n=13
+  │  2026-02  100.0%  ▓▓▓▓▓▓▓▓▓▓  Net R:  +0.40  n=16
+  │  2026-03  100.0%  ▓▓▓▓▓▓▓▓▓▓  Net R:  +0.41  n=16
+  │  2026-04  100.0%  ▓▓▓▓▓▓▓▓▓▓  Net R:  +0.46  n=16
+  │  2026-05   94.4%  ▓▓▓▓▓▓▓▓▓   Net R:  -0.55  n=18
+  └──────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════════
+  3. NY OPEN REVERSAL  (Judas Swing)
+══════════════════════════════════════════════════════════════════
+  Completed :  255   Wins: 176   Losses: 79   Still open: 0
+  Win rate  :  69.0%
+  Avg R/win : 0.17R
+  Expectancy: -0.196R per trade  (NEGATIVE ✗)
+  Avg hold  : 2.8 bars  (14 min)
+
+  ┌─ By Session ─────────────────────────────────┐
+  │  NY         69.0%  (176/255)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Direction ───────────────────────────────┐
+  │  BUY     72.8%  (91/125)
+  │  SELL    65.4%  (85/130)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Day of Week ─────────────────────────────┐
+  │  Mon      51.4%  (19/37)
+  │  Tue      80.6%  (29/36)
+  │  Wed      77.8%  (28/36)
+  │  Thu      72.2%  (26/36)
+  │  Fri      72.2%  (26/36)
+  │  Sat      59.5%  (22/37)
+  │  Sun      70.3%  (26/37)
+  └──────────────────────────────────────────────┘
+
+  ┌─ Best Hours UTC (min 5 trades) ─────────────┐
+  │  13:00   69.0%  ██████      n=255
+  └──────────────────────────────────────────────┘
+
+  ┌─ Monthly breakdown ─────────────────────────┐
+  │  2025-09   83.3%  ▓▓▓▓▓▓▓▓    Net R:  -0.93  n=18
+  │  2025-10   71.0%  ▓▓▓▓▓▓▓     Net R:  -5.01  n=31
+  │  2025-11   70.0%  ▓▓▓▓▓▓▓     Net R:  -5.50  n=30
+  │  2025-12   74.2%  ▓▓▓▓▓▓▓     Net R:  -4.14  n=31
+  │  2026-01   71.0%  ▓▓▓▓▓▓▓     Net R:  -4.70  n=31
+  │  2026-02   64.3%  ▓▓▓▓▓▓      Net R:  -7.50  n=28
+  │  2026-03   61.3%  ▓▓▓▓▓▓      Net R:  -9.12  n=31
+  │  2026-04   73.3%  ▓▓▓▓▓▓▓     Net R:  -4.18  n=30
+  │  2026-05   56.0%  ▓▓▓▓▓       Net R:  -8.82  n=25
+  └──────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════════
+  4. OPENING RANGE BREAKOUT  (30-min)
+══════════════════════════════════════════════════════════════════
+  Completed : 1236   Wins: 1092   Losses: 144   Still open: 1
+  Win rate  :  88.3%
+  Avg R/win : 0.11R
+  Expectancy: -0.022R per trade  (NEGATIVE ✗)
+  Avg hold  : 3.0 bars  (15 min)
+
+  ┌─ By Session ─────────────────────────────────┐
+  │  ASIAN      87.5%  (357/408)
+  │  LONDON     87.0%  (361/415)
+  │  NY         90.6%  (374/413)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Direction ───────────────────────────────┐
+  │  BUY     88.3%  (538/609)
+  │  SELL    88.4%  (554/627)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Day of Week ─────────────────────────────┐
+  │  Mon      86.1%  (161/187)
+  │  Tue      85.9%  (152/177)
+  │  Wed      89.3%  (150/168)
+  │  Thu      87.2%  (150/172)
+  │  Fri      90.3%  (159/176)
+  │  Sat      89.0%  (153/172)
+  │  Sun      90.8%  (167/184)
+  └──────────────────────────────────────────────┘
+
+  ┌─ Best Hours UTC (min 5 trades) ─────────────┐
+  │  11:00  100.0%  ██████████  n=27
+  │  20:00  100.0%  ██████████  n=9
+  │  21:00  100.0%  ██████████  n=5
+  │  15:00   95.5%  █████████   n=44
+  │  13:00   93.1%  █████████   n=216
+  │  03:00   92.3%  █████████   n=13
+  │  06:00   91.7%  █████████   n=12
+  │  02:00   91.5%  █████████   n=47
+  └──────────────────────────────────────────────┘
+
+  ┌─ Monthly breakdown ─────────────────────────┐
+  │  2025-09   84.9%  ▓▓▓▓▓▓▓▓    Net R:  -5.10  n=86
+  │  2025-10   86.2%  ▓▓▓▓▓▓▓▓    Net R:  -5.63  n=152
+  │  2025-11   88.5%  ▓▓▓▓▓▓▓▓    Net R:  -2.28  n=148
+  │  2025-12   86.1%  ▓▓▓▓▓▓▓▓    Net R:  -5.76  n=151
+  │  2026-01   88.2%  ▓▓▓▓▓▓▓▓    Net R:  -1.98  n=144
+  │  2026-02   90.8%  ▓▓▓▓▓▓▓▓▓   Net R:  +0.19  n=130
+  │  2026-03   87.4%  ▓▓▓▓▓▓▓▓    Net R:  -6.24  n=159
+  │  2026-04   91.9%  ▓▓▓▓▓▓▓▓▓   Net R:  +0.34  n=148
+  │  2026-05   90.7%  ▓▓▓▓▓▓▓▓▓   Net R:  -0.19  n=118
+  └──────────────────────────────────────────────┘
+
+  5. CONSOLIDATION SQUEEZE BREAKOUT: no completed trades.
+
+
+══════════════════════════════════════════════════════════════════
+  6. PREVIOUS SESSION LEVEL RUN
+══════════════════════════════════════════════════════════════════
+  Completed :  694   Wins: 167   Losses: 527   Still open: 0
+  Win rate  :  24.1%
+  Avg R/win : 1.33R
+  Expectancy: -0.439R per trade  (NEGATIVE ✗)
+  Avg hold  : 1.0 bars  (5 min)
+
+  ┌─ By Session ─────────────────────────────────┐
+  │  ASIAN      24.8%  (51/206)
+  │  LONDON     22.9%  (56/245)
+  │  NY         24.7%  (60/243)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Direction ───────────────────────────────┐
+  │  BUY     23.4%  (82/351)
+  │  SELL    24.8%  (85/343)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Day of Week ─────────────────────────────┐
+  │  Mon      25.0%  (22/88)
+  │  Tue      17.0%  (19/112)
+  │  Wed      22.0%  (20/91)
+  │  Thu      21.4%  (22/103)
+  │  Fri      34.0%  (32/94)
+  │  Sat      21.0%  (22/105)
+  │  Sun      29.7%  (30/101)
+  └──────────────────────────────────────────────┘
+
+  ┌─ Best Hours UTC (min 5 trades) ─────────────┐
+  │  20:00   36.4%  ███         n=11
+  │  06:00   34.8%  ███         n=23
+  │  19:00   33.3%  ███         n=12
+  │  13:00   32.6%  ███         n=43
+  │  11:00   29.2%  ██          n=24
+  │  14:00   28.6%  ██          n=21
+  │  23:00   28.6%  ██          n=7
+  │  07:00   28.0%  ██          n=25
+  └──────────────────────────────────────────────┘
+
+  ┌─ Monthly breakdown ─────────────────────────┐
+  │  2025-09   25.0%  ▓▓          Net R: -23.39  n=56
+  │  2025-10   28.6%  ▓▓          Net R: -25.75  n=77
+  │  2025-11   16.2%  ▓           Net R: -42.37  n=68
+  │  2025-12   31.0%  ▓▓▓         Net R: -24.10  n=87
+  │  2026-01   19.3%  ▓           Net R: -48.40  n=88
+  │  2026-02   27.0%  ▓▓          Net R: -27.41  n=74
+  │  2026-03   21.7%  ▓▓          Net R: -34.06  n=69
+  │  2026-04   20.4%  ▓▓          Net R: -48.74  n=93
+  │  2026-05   26.8%  ▓▓          Net R: -30.75  n=82
+  └──────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════════
+  7A. OPEN+CLOSE CANDLE — SL=candle extreme
+══════════════════════════════════════════════════════════════════
+  Completed : 2870   Wins: 2040   Losses: 830   Still open: 0
+  Win rate  :  71.1%
+  Avg R/win : 0.32R
+  Expectancy: -0.063R per trade  (NEGATIVE ✗)
+  Avg hold  : 1.5 bars  (8 min)
+
+  ┌─ By Session ─────────────────────────────────┐
+  │  ASIAN      68.1%  (654/961)
+  │  LONDON     70.9%  (683/963)
+  │  NY         74.3%  (703/946)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Direction ───────────────────────────────┐
+  │  BUY     70.9%  (1017/1434)
+  │  SELL    71.2%  (1023/1436)
+  └──────────────────────────────────────────────┘
+
+  ┌─ OPEN vs CLOSE candle ───────────────────────┐
+  │  OPEN  candle   70.2%  (1005/1431)
+  │  CLOSE candle   71.9%  (1035/1439)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Day of Week ─────────────────────────────┐
+  │  Mon      75.2%  (318/423)
+  │  Tue      72.1%  (294/408)
+  │  Wed      69.8%  (279/400)
+  │  Thu      73.4%  (292/398)
+  │  Fri      71.9%  (289/402)
+  │  Sat      65.2%  (273/419)
+  │  Sun      70.2%  (295/420)
+  └──────────────────────────────────────────────┘
+
+  ┌─ Best Hours UTC (min 5 trades) ─────────────┐
+  │  12:00   90.9%  █████████   n=11
+  │  05:00   89.5%  ████████    n=19
+  │  20:00   86.7%  ████████    n=15
+  │  03:00   86.4%  ████████    n=22
+  │  16:00   80.0%  ████████    n=20
+  │  18:00   80.0%  ████████    n=65
+  │  14:00   78.8%  ███████     n=52
+  │  11:00   77.5%  ███████     n=40
+  └──────────────────────────────────────────────┘
+
+  ┌─ Monthly breakdown ─────────────────────────┐
+  │  2025-09   68.9%  ▓▓▓▓▓▓      Net R: -19.00  n=206
+  │  2025-10   71.7%  ▓▓▓▓▓▓▓     Net R: -13.85  n=346
+  │  2025-11   70.3%  ▓▓▓▓▓▓▓     Net R: -19.98  n=337
+  │  2025-12   66.9%  ▓▓▓▓▓▓      Net R: -34.36  n=354
+  │  2026-01   67.0%  ▓▓▓▓▓▓      Net R: -34.33  n=342
+  │  2026-02   69.5%  ▓▓▓▓▓▓      Net R: -25.68  n=302
+  │  2026-03   77.5%  ▓▓▓▓▓▓▓     Net R:  +1.00  n=347
+  │  2026-04   73.2%  ▓▓▓▓▓▓▓     Net R: -24.56  n=347
+  │  2026-05   74.0%  ▓▓▓▓▓▓▓     Net R: -10.12  n=289
+  └──────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════════
+  7B. OPEN+CLOSE CANDLE — SL=fixed ticks
+══════════════════════════════════════════════════════════════════
+  Completed : 2870   Wins: 696   Losses: 2174   Still open: 0
+  Win rate  :  24.3%
+  Avg R/win : 1.33R
+  Expectancy: -0.435R per trade  (NEGATIVE ✗)
+  Avg hold  : 1.0 bars  (5 min)
+
+  ┌─ By Session ─────────────────────────────────┐
+  │  ASIAN      22.1%  (212/961)
+  │  LONDON     24.8%  (239/963)
+  │  NY         25.9%  (245/946)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Direction ───────────────────────────────┐
+  │  BUY     23.6%  (338/1434)
+  │  SELL    24.9%  (358/1436)
+  └──────────────────────────────────────────────┘
+
+  ┌─ OPEN vs CLOSE candle ───────────────────────┐
+  │  OPEN  candle   23.5%  (336/1431)
+  │  CLOSE candle   25.0%  (360/1439)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Day of Week ─────────────────────────────┐
+  │  Mon      29.1%  (123/423)
+  │  Tue      24.3%  (99/408)
+  │  Wed      26.5%  (106/400)
+  │  Thu      24.1%  (96/398)
+  │  Fri      27.4%  (110/402)
+  │  Sat      18.1%  (76/419)
+  │  Sun      20.5%  (86/420)
+  └──────────────────────────────────────────────┘
+
+  ┌─ Best Hours UTC (min 5 trades) ─────────────┐
+  │  05:00   47.4%  ████        n=19
+  │  11:00   37.5%  ███         n=40
+  │  12:00   36.4%  ███         n=11
+  │  14:00   28.8%  ██          n=52
+  │  06:00   28.6%  ██          n=14
+  │  18:00   27.7%  ██          n=65
+  │  19:00   27.6%  ██          n=29
+  │  13:00   27.4%  ██          n=365
+  └──────────────────────────────────────────────┘
+
+  ┌─ Monthly breakdown ─────────────────────────┐
+  │  2025-09   20.4%  ▓▓          Net R: -108.16  n=206
+  │  2025-10   26.3%  ▓▓          Net R: -134.01  n=346
+  │  2025-11   23.1%  ▓▓          Net R: -155.29  n=337
+  │  2025-12   28.0%  ▓▓          Net R: -123.37  n=354
+  │  2026-01   24.6%  ▓▓          Net R: -146.32  n=342
+  │  2026-02   21.9%  ▓▓          Net R: -148.25  n=302
+  │  2026-03   27.4%  ▓▓          Net R: -125.69  n=347
+  │  2026-04   19.6%  ▓           Net R: -188.59  n=347
+  │  2026-05   25.3%  ▓▓          Net R: -118.94  n=289
+  └──────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════════
+  7C. OPEN+CLOSE CANDLE — SL=tighter of (candle, fixed)
+══════════════════════════════════════════════════════════════════
+  Completed : 2870   Wins: 696   Losses: 2174   Still open: 0
+  Win rate  :  24.3%
+  Avg R/win : 1.33R
+  Expectancy: -0.435R per trade  (NEGATIVE ✗)
+  Avg hold  : 1.0 bars  (5 min)
+
+  ┌─ By Session ─────────────────────────────────┐
+  │  ASIAN      22.1%  (212/961)
+  │  LONDON     24.8%  (239/963)
+  │  NY         25.9%  (245/946)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Direction ───────────────────────────────┐
+  │  BUY     23.6%  (338/1434)
+  │  SELL    24.9%  (358/1436)
+  └──────────────────────────────────────────────┘
+
+  ┌─ OPEN vs CLOSE candle ───────────────────────┐
+  │  OPEN  candle   23.5%  (336/1431)
+  │  CLOSE candle   25.0%  (360/1439)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Day of Week ─────────────────────────────┐
+  │  Mon      29.1%  (123/423)
+  │  Tue      24.3%  (99/408)
+  │  Wed      26.5%  (106/400)
+  │  Thu      24.1%  (96/398)
+  │  Fri      27.4%  (110/402)
+  │  Sat      18.1%  (76/419)
+  │  Sun      20.5%  (86/420)
+  └──────────────────────────────────────────────┘
+
+  ┌─ Best Hours UTC (min 5 trades) ─────────────┐
+  │  05:00   47.4%  ████        n=19
+  │  11:00   37.5%  ███         n=40
+  │  12:00   36.4%  ███         n=11
+  │  14:00   28.8%  ██          n=52
+  │  06:00   28.6%  ██          n=14
+  │  18:00   27.7%  ██          n=65
+  │  19:00   27.6%  ██          n=29
+  │  13:00   27.4%  ██          n=365
+  └──────────────────────────────────────────────┘
+
+  ┌─ Monthly breakdown ─────────────────────────┐
+  │  2025-09   20.4%  ▓▓          Net R: -108.16  n=206
+  │  2025-10   26.3%  ▓▓          Net R: -134.01  n=346
+  │  2025-11   23.1%  ▓▓          Net R: -155.29  n=337
+  │  2025-12   28.0%  ▓▓          Net R: -123.34  n=354
+  │  2026-01   24.6%  ▓▓          Net R: -146.32  n=342
+  │  2026-02   21.9%  ▓▓          Net R: -148.18  n=302
+  │  2026-03   27.4%  ▓▓          Net R: -125.69  n=347
+  │  2026-04   19.6%  ▓           Net R: -188.59  n=347
+  │  2026-05   25.3%  ▓▓          Net R: -118.94  n=289
+  └──────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════════
+  8.  OC BOX FLIP — close-flip + hard SL (mult=1.0)
+══════════════════════════════════════════════════════════════════
+  Completed : 84374   Wins: 77716   Losses: 6658   Still open: 0
+  Win rate  :  92.1%
+  Avg R/win : 0.07R
+  Expectancy: -0.014R per trade  (NEGATIVE ✗)
+  Avg hold  : 122.0 bars  (610 min)
+
+  ┌─ By Session ─────────────────────────────────┐
+  │  ASIAN      91.9%  (25920/28200)
+  │  LONDON     92.3%  (25592/27724)
+  │  NY         92.1%  (26204/28450)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Direction ───────────────────────────────┐
+  │  BUY     92.0%  (38256/41577)
+  │  SELL    92.2%  (39460/42797)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Day of Week ─────────────────────────────┐
+  │  Mon      91.7%  (11289/12310)
+  │  Tue      92.3%  (11677/12655)
+  │  Wed      92.1%  (10733/11658)
+  │  Thu      93.4%  (11192/11977)
+  │  Fri      90.9%  (10450/11492)
+  │  Sat      92.4%  (11156/12077)
+  │  Sun      91.9%  (11219/12205)
+  └──────────────────────────────────────────────┘
+
+  ┌─ Best Hours UTC (min 5 trades) ─────────────┐
+  │  06:00   94.4%  █████████   n=2933
+  │  07:00   94.2%  █████████   n=2853
+  │  05:00   94.2%  █████████   n=3137
+  │  20:00   93.9%  █████████   n=2989
+  │  15:00   93.8%  █████████   n=3867
+  │  21:00   93.7%  █████████   n=2978
+  │  04:00   93.4%  █████████   n=3332
+  │  12:00   93.2%  █████████   n=3024
+  └──────────────────────────────────────────────┘
+
+  ┌─ Monthly breakdown ─────────────────────────┐
+  │  2025-09   91.8%  ▓▓▓▓▓▓▓▓▓   Net R: -24.41  n=5702
+  │  2025-10   91.2%  ▓▓▓▓▓▓▓▓▓   Net R: -11.32  n=9650
+  │  2025-11   92.5%  ▓▓▓▓▓▓▓▓▓   Net R: +14.47  n=9648
+  │  2025-12   90.3%  ▓▓▓▓▓▓▓▓▓   Net R: -40.08  n=9417
+  │  2026-01   91.8%  ▓▓▓▓▓▓▓▓▓   Net R:  +3.33  n=9885
+  │  2026-02   93.2%  ▓▓▓▓▓▓▓▓▓   Net R: +27.35  n=9454
+  │  2026-03   92.7%  ▓▓▓▓▓▓▓▓▓   Net R: -24.21  n=11134
+  │  2026-04   92.1%  ▓▓▓▓▓▓▓▓▓   Net R: -48.26  n=10891
+  │  2026-05   93.1%  ▓▓▓▓▓▓▓▓▓   Net R: +17.56  n=8593
+  └──────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════════
+  9.  OC + ICT SESSIONS, M5 trigger, fixed SL
+══════════════════════════════════════════════════════════════════
+  Completed : 2849   Wins: 727   Losses: 2122   Still open: 0
+  Win rate  :  25.5%
+  Avg R/win : 1.33R
+  Expectancy: -0.406R per trade  (NEGATIVE ✗)
+  Avg hold  : 1.0 bars  (5 min)
+
+  ┌─ By Session ─────────────────────────────────┐
+  │  ASIAN      25.6%  (244/953)
+  │  LONDON     25.1%  (238/950)
+  │  NY         25.9%  (245/946)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Direction ───────────────────────────────┐
+  │  BUY     24.4%  (346/1417)
+  │  SELL    26.6%  (381/1432)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Day of Week ─────────────────────────────┐
+  │  Mon      27.9%  (117/420)
+  │  Tue      28.0%  (111/397)
+  │  Wed      27.9%  (112/401)
+  │  Thu      25.4%  (103/406)
+  │  Fri      24.0%  (91/379)
+  │  Sat      20.4%  (88/432)
+  │  Sun      25.4%  (105/414)
+  └──────────────────────────────────────────────┘
+
+  ┌─ Best Hours UTC (min 5 trades) ─────────────┐
+  │  02:00   45.8%  ████        n=24
+  │  05:00   38.5%  ███         n=13
+  │  12:00   36.4%  ███         n=11
+  │  19:00   36.4%  ███         n=22
+  │  14:00   35.8%  ███         n=53
+  │  00:00   34.8%  ███         n=46
+  │  06:00   33.3%  ███         n=9
+  │  21:00   33.3%  ███         n=18
+  └──────────────────────────────────────────────┘
+
+  ┌─ Monthly breakdown ─────────────────────────┐
+  │  2025-09   30.1%  ▓▓▓         Net R: -61.57  n=206
+  │  2025-10   29.0%  ▓▓          Net R: -109.70  n=338
+  │  2025-11   22.0%  ▓▓          Net R: -164.61  n=337
+  │  2025-12   28.9%  ▓▓          Net R: -113.71  n=349
+  │  2026-01   28.7%  ▓▓          Net R: -112.70  n=341
+  │  2026-02   23.7%  ▓▓          Net R: -139.61  n=312
+  │  2026-03   24.4%  ▓▓          Net R: -146.65  n=340
+  │  2026-04   22.1%  ▓▓          Net R: -166.95  n=344
+  │  2026-05   21.6%  ▓▓          Net R: -139.90  n=282
+  └──────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════════
+  10. OC + ICT SESSIONS, H1 trigger, fixed SL
+══════════════════════════════════════════════════════════════════
+  Completed : 2625   Wins: 667   Losses: 1958   Still open: 0
+  Win rate  :  25.4%
+  Avg R/win : 1.33R
+  Expectancy: -0.408R per trade  (NEGATIVE ✗)
+  Avg hold  : 1.0 bars  (5 min)
+
+  ┌─ By Session ─────────────────────────────────┐
+  │  ASIAN      25.4%  (223/879)
+  │  LONDON     25.1%  (220/878)
+  │  NY         25.8%  (224/868)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Direction ───────────────────────────────┐
+  │  BUY     25.8%  (339/1314)
+  │  SELL    25.0%  (328/1311)
+  └──────────────────────────────────────────────┘
+
+  ┌─ By Day of Week ─────────────────────────────┐
+  │  Mon      23.0%  (89/387)
+  │  Tue      24.1%  (91/377)
+  │  Wed      23.2%  (82/354)
+  │  Thu      26.4%  (100/379)
+  │  Fri      24.9%  (91/365)
+  │  Sat      30.0%  (112/373)
+  │  Sun      26.2%  (102/390)
+  └──────────────────────────────────────────────┘
+
+  ┌─ Best Hours UTC (min 5 trades) ─────────────┐
+  │  12:00   50.0%  █████       n=34
+  │  03:00   36.8%  ███         n=57
+  │  14:00   33.3%  ███         n=102
+  │  22:00   31.2%  ███         n=430
+  │  18:00   28.8%  ██          n=52
+  │  08:00   28.6%  ██          n=77
+  │  04:00   26.3%  ██          n=19
+  │  15:00   25.8%  ██          n=62
+  └──────────────────────────────────────────────┘
+
+  ┌─ Monthly breakdown ─────────────────────────┐
+  │  2025-09   23.4%  ▓▓          Net R: -85.50  n=188
+  │  2025-10   30.6%  ▓▓▓         Net R: -88.69  n=310
+  │  2025-11   22.7%  ▓▓          Net R: -144.93  n=308
+  │  2025-12   25.2%  ▓▓          Net R: -131.64  n=318
+  │  2026-01   30.3%  ▓▓▓         Net R: -92.69  n=314
+  │  2026-02   26.7%  ▓▓          Net R: -110.29  n=292
+  │  2026-03   22.6%  ▓▓          Net R: -150.27  n=318
+  │  2026-04   22.7%  ▓▓          Net R: -151.94  n=322
+  │  2026-05   23.5%  ▓▓          Net R: -115.23  n=255
+  └──────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════════
+  COMBINED SUMMARY — ALL 6 PATTERNS
+══════════════════════════════════════════════════════════════════
+  Pattern                                 N    Win%    Exp R
+  ──────────────────────────────────  ─────  ──────  ───────
+  SESSION H/L BREAKOUT                 1141   26.3%  -0.387R ✗
+  LONDON BREAKOUT OF ASIAN RANGE        142   96.5%  -0.006R ✗
+  NY OPEN REVERSAL  (Judas Swing)       255   69.0%  -0.196R ✗
+  OPENING RANGE BREAKOUT  (30-min)     1236   88.3%  -0.022R ✗
+  PREVIOUS SESSION LEVEL RUN            694   24.1%  -0.439R ✗
+  OPEN+CLOSE CANDLE — SL=candle extr   2870   71.1%  -0.063R ✗
+  OPEN+CLOSE CANDLE — SL=fixed ticks   2870   24.3%  -0.435R ✗
+  OPEN+CLOSE CANDLE — SL=tighter of    2870   24.3%  -0.435R ✗
+  0)                                  84374   92.1%  -0.014R ✗
+  OC + ICT SESSIONS, M5 trigger, fix   2849   25.5%  -0.406R ✗
+  OC + ICT SESSIONS, H1 trigger, fix   2625   25.4%  -0.408R ✗
+
+
+  All trades exported → scanner_results.csv
+
+Done.
+

@@ -1,0 +1,200 @@
+═══════════════════════════════════════════════════════════════════
+  V25 ICT TRADING SETUP — Deployment guide
+  Last updated: 2026-05-27
+═══════════════════════════════════════════════════════════════════
+
+This is the step-by-step setup for the production V25 strategy:
+  Pattern 9 + SL=2000/TP=6000 + 13:00 UTC hour filter
+
+For the full diagnostic story behind this config, see:
+   MODEL_FINDINGS_2026-05-26.md
+
+
+───────────────────────────────────────────────────────────────────
+  PART 1 — Install the EA (ICTSessionsEA.mq5)
+───────────────────────────────────────────────────────────────────
+
+1. Open MetaTrader 5.
+2. Press F4 to open MetaEditor.
+3. In the file tree (Navigator pane), find:
+      MQL5 \ Experts
+4. Right-click → Open Folder. This is where ICTSessionsEA.mq5 goes.
+5. Copy the latest ICTSessionsEA.mq5 from this project into that
+   folder (overwrite any old copy).
+6. Back in MetaEditor, open ICTSessionsEA.mq5 and press F7 to compile.
+7. You should see "0 errors, 0 warnings" — this produces .ex5.
+8. Close MetaEditor.
+9. In MT5, the EA now appears under:
+      Navigator → Expert Advisors → ICTSessionsEA
+
+
+───────────────────────────────────────────────────────────────────
+  PART 2 — Install the indicator (ICTManualTradeAssist.mq5)
+───────────────────────────────────────────────────────────────────
+
+1. In MetaEditor, navigate to:
+      MQL5 \ Indicators
+2. Right-click → Open Folder.
+3. Copy ICTManualTradeAssist.mq5 from this project into that folder.
+4. Open it in MetaEditor and press F7 to compile.
+5. Verify "0 errors, 0 warnings".
+6. The indicator now appears under:
+      Navigator → Indicators → Custom → ICTManualTradeAssist
+
+
+───────────────────────────────────────────────────────────────────
+  PART 3 — Set up the trading chart
+───────────────────────────────────────────────────────────────────
+
+We DO NOT ship a .tpl file because MT5 templates are unreliable
+across builds for custom-indicator setups. Instead, set up the
+chart once manually — it's a one-time, two-minute job — and then
+save your own template via MT5's UI for instant re-use later.
+
+1. In MT5, open a new chart for V25:
+      File → New Chart → Volatility 25 Index (R_25)
+2. **CRITICAL: Change timeframe to M5** (5 minute) using either:
+      - The M5 button in the toolbar, OR
+      - Right-click chart → Periodicity → 5 Minutes
+   The indicator reads M5 data explicitly so it CAN run on other
+   timeframes, but session boxes and level lines won't visually
+   align with the chart bars unless you're on M5.
+3. From Navigator pane (Ctrl+N if hidden):
+      Indicators → Custom → ICTManualTradeAssist
+   Drag this onto the chart. The Inputs tab should already show
+   the correct defaults (Trade hour 13, SL=2000, TP=6000). Click OK.
+4. You should immediately see:
+      - Session boxes (Asia/London/NY tinted backgrounds)
+      - OC and CC level lines (solid + dashed colored lines)
+      - "[ARMED]" or "[UNARMED]" tag next to each level label
+      - Pale-green vertical band where 13:00 UTC will be on the chart
+      - Status panel top-left with live UTC time + countdown
+      - Faint dotted horizontal SL/TP guide lines from current bid
+5. Save as your own template for one-click re-use later:
+      Right-click chart → Template → Save Template
+      Name it whatever you like (e.g. "V25_Trading") → Save.
+   From then on, you can load this template instantly on any new
+   chart via right-click → Template → Load Template.
+
+
+───────────────────────────────────────────────────────────────────
+  PART 4 — Start the EA
+───────────────────────────────────────────────────────────────────
+
+1. Make sure the chart is V25, M5 timeframe.
+2. From Navigator, drag ICTSessionsEA onto the chart.
+3. In the dialog:
+      Common tab:
+         - "Allow Algo Trading" → ticked
+         - "Allow modification of Signal settings" → ticked
+      Inputs tab (verify defaults — they should already be set):
+         - InpUseHourFilter = true
+         - InpHoursAllowed  = "13"
+         - InpFixedSLTicks  = 2000
+         - InpTPTicks       = 6000
+         - InpLotSize       = 0.5
+4. Click OK.
+5. Top-right of chart should show a small smiling face → EA is running.
+
+You can verify the EA is reading the right inputs by checking the
+Experts/Journal tab — on startup it prints a config summary.
+
+
+───────────────────────────────────────────────────────────────────
+  PART 5 — What you'll see each day
+───────────────────────────────────────────────────────────────────
+
+OUTSIDE 13:00 UTC (most of the day):
+  - Panel shows "CLOSED — opens in XXh YYm"
+  - The EA may log "[SKIP] hour filter blocked at NN:00" when an
+    armed level breaks. This is intentional.
+  - Levels still update their ARMED/UNARMED state visually.
+
+DURING 13:00–14:00 UTC:
+  - Panel turns green: "TRADE WINDOW OPEN  (X min left)"
+  - Chart background tinted pale green
+  - If an armed level breaks, the EA fires automatically.
+  - You may also manually pull the trigger if you prefer — the SL/TP
+    guide lines show where the EA would place its exits.
+
+AFTER A TRADE:
+  - Position stays open until either SL or TP hits, OR the level's
+    24h TTL expires (open positions are not closed by TTL).
+  - Daily R-tracking via InpDailyMaxLossR = 3.0 will halt trading if
+    you take 3 stop-outs in one day. (Rare at 1-2 trades/day.)
+
+
+───────────────────────────────────────────────────────────────────
+  PART 6 — Demo first, then live
+───────────────────────────────────────────────────────────────────
+
+DO NOT go live without 1-2 weeks of demo data first.
+
+To run on demo:
+  1. Open a Deriv DEMO account (if you don't have one already).
+  2. Log in to that account in MT5.
+  3. Follow Parts 3-4 above on the demo account.
+  4. Let it run for 10-14 trading days.
+  5. Compare live performance to backtest:
+       - Win rate should be ~28% (acceptable range: 22-34%)
+       - Avg net R per win should be ~3.0
+       - Number of trades fired should match (~1-2/day)
+  6. If live retention < 50% (i.e., live edge < half of backtest),
+     DO NOT deploy live. Revisit assumptions.
+
+Once demo passes for 2 weeks, repeat Parts 3-4 on your $100 live
+account. Risk no more than 1R per day (= $1.00 = the SL of a single
+losing trade).
+
+
+───────────────────────────────────────────────────────────────────
+  EXPECTED PERFORMANCE (live, $100 account, 0.5 lot)
+───────────────────────────────────────────────────────────────────
+
+These numbers assume 0.7 retention of backtest edge:
+
+  1 week    ~10 trades   ~+$0.87 expected   (range −$5 to +$7)
+  2 weeks   ~21 trades   ~+$1.83 expected   (range −$6 to +$10)
+  1 month   ~42 trades   ~+$3.65 expected   (range −$8 to +$15)
+  2 months  ~84 trades   ~+$7.31 expected   (range −$9 to +$24)
+  3 months  ~126 trades  ~+$10.96 expected  (range −$9 to +$31)
+  6 months  ~252 trades  ~+$21.92 expected  (range −$7 to +$50)
+  1 year    ~504 trades  ~+$43.85 expected  (range +$3 to +$84)
+
+The expectation is positive, but variance is large. A 12-trade
+losing streak (~$12 / 12% of $100) is in the backtest data and
+WILL happen at some point. A 2-month stretch with a $25 drawdown
+WILL happen at some point. If those would shake your conviction,
+this account size is too small for this strategy.
+
+
+───────────────────────────────────────────────────────────────────
+  TROUBLESHOOTING
+───────────────────────────────────────────────────────────────────
+
+"EA shows ☹ instead of ☺ on chart"
+  - Check "Allow Algo Trading" is enabled in Tools → Options.
+  - Check the AutoTrading button (top toolbar) is ON.
+
+"Indicator doesn't show anything"
+  - Make sure you're on R_25 / V25 symbol.
+  - Make sure timeframe is M5 (other TFs won't show OC/CC lines).
+  - Wait 5-10 minutes for the first OC/CC candle to form.
+
+"Template won't load"
+  - Confirm the .tpl is in: <Data Folder>\MQL5\Profiles\Templates\
+  - Restart MT5 after copying it in.
+  - If still failing, manually drag ICTManualTradeAssist onto the
+    chart from Navigator → Indicators → Custom.
+
+"Times look wrong"
+  - The indicator and EA use UTC times for sessions.
+  - Your MT5 broker time is UTC+2 (SAST), so on the chart axis
+    13:00 UTC will appear as 15:00.
+  - The status panel always shows TRUE UTC time.
+
+"EA is logging [SKIP] hour filter blocked"
+  - This is intentional. It means an armed level broke outside
+    13:00 UTC. Do nothing — wait for tomorrow's 13:00 UTC window.
+
+═══════════════════════════════════════════════════════════════════

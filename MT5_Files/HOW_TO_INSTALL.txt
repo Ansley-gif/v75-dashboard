@@ -1,0 +1,169 @@
+============================================================
+  ICT SESSION LEVELS — MT5 INSTALL GUIDE
+  V75 Trading Systems
+============================================================
+
+TWO FILES, TWO JOBS
+-------------------
+  SessionLevels.mq5       → Indicator  (draws everything on chart)
+  SessionBreakoutEA.mq5   → Expert Advisor  (places the trades)
+
+You can run the Indicator alone (visual only, no trades)
+or run both together for full automation.
+
+
+============================================================
+  STEP 1 — COPY THE FILES INTO MT5
+============================================================
+
+Option A — Drag from MT5 Navigator (easiest)
+  1. Open MT5 → File → Open Data Folder
+  2. Navigate to:  MQL5\Indicators\
+  3. Paste  SessionLevels.mq5  here
+  4. Navigate to:  MQL5\Experts\
+  5. Paste  SessionBreakoutEA.mq5  here
+
+Option B — MetaEditor
+  1. Open MetaEditor (F4 in MT5)
+  2. File → New → from template, then paste the code
+     OR File → Open and navigate to the files above
+
+
+============================================================
+  STEP 2 — COMPILE
+============================================================
+
+  1. Open MetaEditor (press F4 in MT5)
+  2. Open SessionLevels.mq5  →  press F7 (Compile)
+     ✓ Should say "0 errors, 0 warnings"
+  3. Open SessionBreakoutEA.mq5  →  press F7
+     ✓ Should say "0 errors, 0 warnings"
+
+
+============================================================
+  STEP 3 — APPLY THE INDICATOR (Visual tool)
+============================================================
+
+  1. Open a chart for your instrument (V75, V10, etc.)
+  2. Switch timeframe to M5  ← REQUIRED
+  3. Navigator panel → Indicators → SessionLevels
+  4. Drag onto chart  OR  double-click
+  5. Adjust inputs if needed (see INPUTS section below)
+
+  What you will see:
+  ┌─ Blue shaded box     = Asian session  (00:00–08:00 UTC)
+  ├─ Green shaded box    = London session  (08:00–17:00 UTC)
+  ├─ Orange shaded box   = New York session  (13:00–22:00 UTC)
+  ├─ Dashed H/L lines    = Session High and Low levels (key S/R)
+  ├─ Green rectangles    = Bullish Fair Value Gaps (FVG)
+  ├─ Red rectangles      = Bearish Fair Value Gaps
+  ├─ Blue rectangles     = Bullish Order Blocks (OB)
+  ├─ Red rectangles      = Bearish Order Blocks
+  ├─ Red ▼ arrows        = Swing Highs
+  ├─ Green ▲ arrows      = Swing Lows
+  ├─ Teal dashed box     = Bullish Breaker Block
+  ├─ Purple dashed box   = Bearish Breaker Block
+  └─ Gold dotted box     = Void (large impulsive body)
+
+
+============================================================
+  STEP 4 — APPLY THE EA (Auto-trading)
+============================================================
+
+  BEFORE YOU START — ALWAYS TEST ON DEMO FIRST!
+
+  1. Make sure "Auto Trading" is enabled in MT5 (Algo Trading button)
+  2. Navigator → Expert Advisors → SessionBreakoutEA
+  3. Drag onto the M5 chart
+  4. Set inputs (Lot size, session times, SL/TP mode)
+  5. Click OK
+
+  KEY INPUTS TO SET:
+  ┌─ InpLotSize         = Position size (start with 0.01 on demo)
+  ├─ InpSLMode          = 0 (nearest swing) or 1 (breakout candle)
+  ├─ InpTPMode          = 0 (next swing/liquidity) or 1 (fixed ticks)
+  ├─ InpTPTicks         = 75 (= 75 ticks, adjustable 50–100)
+  ├─ InpTradeAsian      = true/false per session
+  ├─ InpTradeLondon     = true/false
+  ├─ InpTradeNY         = true/false
+  └─ InpMinSessBars     = 12 (waits 12 bars = 1hr before trading a session)
+
+
+============================================================
+  SESSION TIMES — DERIV / UTC
+============================================================
+
+  Session     UTC Open    UTC Close    Notes
+  ─────────── ─────────── ─────────── ────────────────────
+  Asian       00:00       08:00        Sydney + Tokyo
+  London      08:00       17:00        European session
+  New York    13:00       22:00        US session
+  Overlap     13:00       17:00        London/NY — most volatile
+
+  Deriv synthetic indices trade 24/7 so ALL sessions are active.
+  Adjust server time offset in inputs if your MT5 broker uses UTC+2/+3.
+
+
+============================================================
+  HOW THE BREAKOUT TRADE WORKS
+============================================================
+
+  1. EA waits until a session has formed at least InpMinSessBars bars
+     so the H/L level is meaningful (not just 1 candle)
+
+  2. When price breaks ABOVE session High:
+     → BUY trade
+     → SL = nearest swing Low (or breakout candle Low if Mode 1)
+     → TP = nearest swing High above entry (or fixed 75 ticks)
+
+  3. When price breaks BELOW session Low:
+     → SELL trade
+     → SL = nearest swing High (or breakout candle High if Mode 1)
+     → TP = nearest swing Low below entry (or fixed 75 ticks)
+
+  4. Only 1 trade per session level per day (hi_traded / lo_traded flag)
+  5. Max 1 open trade at a time by default (InpMaxTrades)
+
+
+============================================================
+  BACKTEST SETTINGS (Strategy Tester)
+============================================================
+
+  Model:          Every tick based on real ticks  ← best accuracy
+  Symbol:         R_75 (V75) or your preferred index
+  Timeframe:      M5
+  Period:         Start 1 year back  (e.g. 2024.01.01 to today)
+  Optimization:   Try different InpTPTicks values (50, 75, 100)
+                  Try InpSLMode 0 vs 1
+                  Try individual sessions (asian only, etc.)
+
+  In Deriv's MT5, tick data quality varies — use at least
+  "1 minute OHLC" model for a reasonable speed/accuracy balance.
+
+
+============================================================
+  TIPS FOR SELLING / SHARING THIS TOOL
+============================================================
+
+  1. Protect the EA:  MetaEditor → Tools → Compile as .ex5
+     Share the compiled .ex5 file — source code stays hidden.
+
+  2. Add expiry (optional): Use TimeCurrent() check in OnInit()
+     to disable the EA after a trial period.
+
+  3. Use a licence key system: Pair with AccountNumber() check
+     so the EA only works on one account.
+
+  4. The indicator (.ex5) can similarly be shared without source.
+
+
+============================================================
+  FILES SUMMARY
+============================================================
+
+  MT5_Files/
+  ├── SessionLevels.mq5        ← copy to MQL5/Indicators/
+  ├── SessionBreakoutEA.mq5    ← copy to MQL5/Experts/
+  └── HOW_TO_INSTALL.txt       ← this file
+
+============================================================

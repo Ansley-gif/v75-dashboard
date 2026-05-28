@@ -1,0 +1,9 @@
+# MT5 compiled binaries — regenerable from source via MetaEditor F7
+*.ex5
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Large analysis CSV (regenerable from PatternScanner.py)
+scanner_results.csv
