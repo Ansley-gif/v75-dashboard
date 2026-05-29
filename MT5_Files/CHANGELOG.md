@@ -79,9 +79,11 @@ Living record of what's been built, fixed, tested, and what's still on the runwa
 
 ## 🔄 In Progress / Verification Needed
 
-- [ ] Update `ICTSessionsEA.mq5`: SL=2000, TP=6000, hour filter defaulting to 13:00 UTC, fix day-R denominator
-- [ ] Build manual-trading chart template (indicator) matching new EA style
-- [ ] Demo-test the updated EA on V25 for 1–2 weeks → compare live to backtest
+- [x] Update `ICTSessionsEA.mq5`: SL=2000, TP=6000, hour filter defaulting to 13:00 UTC
+- [x] Day-R denominator fix verified in place (was already done in EA code prior to the diagnostic session)
+- [x] Build manual-trading indicator matching new EA style (`ICTManualTradeAssist.mq5`)
+- [x] Restored `ICTSessionsEA.mq5` from MT5 backup after working-copy was inadvertently blanked between commits (2026-05-29). Cause not identified; demo EA was unaffected because user had already copied the source + compiled the .ex5 into MT5 before the blank.
+- [ ] Demo-test the updated EA on V25 for 10–14 days → compare live to backtest (currently early in this window)
 - [ ] Apply 60–80% retention haircut to forecasts (live edge ≈ $37–$50/year on $100 acct, mid $44, NOT the old $300+ projection)
 
 ---
