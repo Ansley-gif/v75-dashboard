@@ -3,6 +3,29 @@
   V75 Trading Systems
 ============================================================
 
+  *** SUPERSEDED — read SETUP_GUIDE.txt instead ***
+
+This file references the v1 deprecated files (SessionLevels.mq5
+and SessionBreakoutEA.mq5). The current production system is:
+
+  ICTSessionsEA.mq5         → THE EA (Pattern 9 + 13:00 UTC filter)
+  ICTManualTradeAssist.mq5  → Manual-trading companion indicator
+
+Current install + run instructions:
+  SETUP_GUIDE.txt           ← read this
+
+Current strategy + forecast:
+  MODEL_FINDINGS_2026-05-26.md
+
+The remainder of this file is preserved as a historical record of
+the original v1 install workflow. Do NOT follow these steps for the
+production strategy.
+
+============================================================
+  ORIGINAL v1 GUIDE (HISTORICAL) BELOW
+============================================================
+
+
 TWO FILES, TWO JOBS
 -------------------
   SessionLevels.mq5       → Indicator  (draws everything on chart)

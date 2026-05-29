@@ -6,61 +6,64 @@ This file is read automatically by Claude Code when it starts in this directory.
 
 ## What this project is
 
-ICT-style breakout trading system for **Deriv's Volatility 25 Index (V25 / R_25)** on MT5, M5 timeframe. The system has three parts:
+ICT-style breakout trading system for **Deriv's Volatility 25 Index (V25 / R_25)** on MT5, M5 timeframe. The system has four parts:
 
-1. **`ICTSessionsEA.mq5`** — the production Expert Advisor (current strategy)
-2. **`SessionOCLevels.mq5`** — chart indicator showing session boxes + OC/CC levels
-3. **`PatternScanner.py`** — Python backtester for strategy research
+1. **`ICTSessionsEA.mq5`** — the production Expert Advisor
+2. **`ICTManualTradeAssist.mq5`** — chart indicator for hand-trading the same setups
+3. **`SolidSessionOCLevels.mq5`** — simpler session/level visualiser (legacy, indicator-only)
+4. **`PatternScanner.py`** — Python backtester for strategy research
 
-User's account: **Deriv SVG**, MT5 broker time **UTC+2 (SAST)**, V25 broker `stops_level` = 423 points, min lot 0.5, point 0.001, tick value 0.001.
+User's account: **Deriv SVG**, MT5 broker time **UTC+2 (SAST)**, V25 broker `stops_level` = 423 points, min lot 0.5, point 0.001, tick value 0.001. Account size **~$100 USD live, demo for testing**.
+
+---
+
+## The winning strategy (as of 2026-05-29)
+
+**Pattern 9 + SL=2000 / TP=6000 + 13:00 UTC hour filter.** Read [`MODEL_FINDINGS_2026-05-26.md`](MODEL_FINDINGS_2026-05-26.md) first for the full context.
+
+| Parameter | Value |
+|---|---|
+| Pattern | OC + ICT sessions, M5 trigger (Pattern 9) |
+| Configured SL | 2000 ticks (broker_sl = 2000, 1R = $1.00 at 0.5 lot) |
+| Configured TP | 6000 ticks ($-R:R = 3.0, break-even WR only 25%) |
+| Hour filter | 13:00 UTC ONLY (NY open — the verified edge) |
+| Backtest expectancy | +0.122R per trade, 4/4 windows positive |
+| Live forecast (×0.7 retention) | ~+$44/year on $100 account |
+| Max DD seen in backtest | $26 over 8 months (~26% of account) |
+
+**This is NOT the old +0.841R Pattern 9 number.** That came from running the scanner with no broker friction modelled. See [`DIAGNOSIS_2026-05-22.md`](DIAGNOSIS_2026-05-22.md) for how the original number collapsed and [`MODEL_FINDINGS_2026-05-26.md`](MODEL_FINDINGS_2026-05-26.md) for how we recovered an edge with wide SL + hour filter.
 
 ---
 
 ## File inventory
 
 ### Production files (don't modify without explicit approval)
-- `ICTSessionsEA.mq5` — the EA we currently trade. Pattern 9 baked in.
-- `SessionOCLevels.mq5` — the chart indicator (v2, with shaded boxes, today-only)
-- `PatternScanner.py` — research backtester, fetches Deriv API + simulates strategies
+- `ICTSessionsEA.mq5` — the EA. Defaults are: SL=2000, TP=6000, hour filter ON ("13"). Has per-position risk tracking (day-R denominator bug fixed in code).
+- `ICTManualTradeAssist.mq5` — manual-trading indicator: session boxes + OC/CC levels with live ARMED/UNARMED state + 13:00 UTC trade-window highlight + status panel + SL/TP guides.
+- `PatternScanner.py` — research backtester. BROKER_PRESETS auto-load real spread/stops_level per symbol; trades report $-frame R-multiple.
 
-### Older EAs (kept as fallbacks, do not delete)
-- `OpenCloseEA.mq5` — original ICT EA, older session times
-- `GOLDOpenCloseEA.mq5` — mid-development EA with ARMED/UNARMED state machine but OLD session times
-- `SessionBreakoutEA.mq5` — v1 broader strategy (deprecated)
-- `SessionLevels.mq5` — v1 indicator (deprecated)
+### Research scripts (kept — reusable for future analysis)
+- `stress_windows.py` — Pattern 9 cross-window stability test (4 non-overlapping 2-mo windows)
+- `stress_full.py` — comprehensive 3-phase test: wide-SL extension, hour breakdown, all 9 patterns × 4 configs
+- `verify_filters.py` — hour-filter sweep + drawdown profile for chosen config
+- `tp_sl_sweep.py` — original TP/SL grid sweep (predates the scanner fix; left for reference)
 
-### Documentation (the source of truth — read these before answering questions about state)
-- `CHANGELOG.md` — full history of what's been built and what's pending
-- `USER_GUIDE.md` — install + usage for every tool
-- `STRATEGY_REPORT.md` — all 10 patterns and their backtest results
-- `SELLER_CHECKLIST.md` — productisation guide (legal, license, support)
-- `HOW_TO_INSTALL.txt`, `OPEN_CLOSE_README.txt` — original strategy docs
-- `scanner_results.csv` — raw output of the last full backtest
+### Older/legacy MQL5 (kept as fallbacks, do not delete)
+- `SolidSessionOCLevels.mq5` — simpler session-box indicator (v2)
+- `OpenCloseLevels.mq5`, `GOLDOpenCloseEA.mq5`, `SessionBreakoutEA.mq5`, `SessionLevels.mq5` — older versions
 
----
+### Documentation (read these before answering questions about state)
+- **`MODEL_FINDINGS_2026-05-26.md`** ← read FIRST for current strategy spec + diagnostic story + forecast
+- **`SETUP_GUIDE.txt`** — step-by-step deployment instructions (CURRENT — supersedes HOW_TO_INSTALL.txt)
+- `CHANGELOG.md` — full history of what's been built and what's pending (Phase 9 is the latest)
+- `DIAGNOSIS_2026-05-22.md` — historical record of the EA blowup audit
+- `USER_GUIDE.md` — install + usage (PARTIALLY UPDATED — defer to SETUP_GUIDE.txt if conflicts)
+- `STRATEGY_REPORT.md` — has STALE +0.841R numbers; flagged with header pointing to MODEL_FINDINGS
+- `SELLER_CHECKLIST.md` — productisation guide (strategy-agnostic, still current)
+- `HOW_TO_INSTALL.txt`, `OPEN_CLOSE_README.txt` — historical install docs (superseded)
 
-## The 10 patterns (full list)
-
-The scanner tests all 10. **Pattern 9 is the production winner.**
-
-| # | Pattern | V25 Expectancy | Trades | Status |
-|---|---|---|---|---|
-| 1 | Session H/L Breakout | +0.793R | 1,070 | ✅ Positive |
-| 2 | London Breakout of Asian Range | +0.007R | 134 | ⚠️ Tiny edge |
-| 3 | NY Open Reversal (Judas Swing) | +0.236R | 238 | ✅ Positive |
-| 4 | Opening Range Breakout (30-min) | −0.009R | 1,157 | ❌ Negative |
-| 5 | Consolidation Squeeze | No trades | 0 | ⚠️ Doesn't fit V25 |
-| 6 | Previous Session Level Run | +0.774R | 633 | ✅ Positive |
-| 7A | OC Candle — SL=candle extreme | +0.001R | 2,672 | ⚠️ Flat |
-| 7B | OC Candle — SL=fixed ticks | +0.762R | 2,672 | ✅ Positive (baseline) |
-| 7C | OC Candle — SL=tighter of both | +0.762R | 2,672 | ✅ Positive |
-| 8 | OC Box Flip + hard SL | −0.013R | 87,877 | ❌ Negative |
-| **9** | **OC + ICT Sessions, M5 trigger** | **+0.841R** | **2,656** | ✅ **PRODUCTION** |
-| 10 | OC + ICT Sessions, H1 trigger | +0.783R | 2,450 | ✅ Positive but worse than 9 |
-
-(Pattern 7 has 3 sub-variants A/B/C, hence 12 numbered rows for 10 patterns.)
-
-For the full detail per pattern, monthly breakdown, and cross-symbol results: read `STRATEGY_REPORT.md`.
+### Analysis logs (evidence of work done — keep)
+- `baseline_step1.log`, `step2_tp1330.log`, `stress_windows.log`, `stress_full.log`, `verify_filters.log` — from the 2026-05-26 diagnostic session
 
 ---
 
@@ -76,17 +79,19 @@ For the full detail per pattern, monthly breakdown, and cross-symbol results: re
 ### Symbol scan results
 | Symbol | Verdict |
 |---|---|
-| R_25 (V25) | ✅ Production — Pattern 9 +0.841R |
-| R_10 (V10) | 🔄 +0.811R at native scale, needs re-verify at broker scale |
-| R_50 (V50) | ❌ All patterns negative |
+| R_25 (V25) | ✅ Production — Pattern 9 + 13:00 UTC filter +0.122R live |
+| R_10 (V10) | ⏳ Re-scan needed under broker-realistic scanner (old +0.811R was idealised) |
+| R_50 (V50) | ❌ All patterns negative (re-confirmed under broker model) |
 | R_75 (V75) | ❌ Broker stops_level = 10,770, too wide |
 | 1HZ* variants | ⏳ Untested, in backlog |
 
-### Critical bugs fixed (state-machine logic)
-The current ICTSessionsEA includes:
-- **ARMED/UNARMED state machine** per level — fires once, must wait for box re-entry to re-arm. Solves the "stale level fires 13 hours later" bug.
-- **Broker-correct SL/TP validation** — BUY validated against Bid, SELL against Ask, plus stops_level + freeze_level + spread + safety margin.
-- **R:R filter with logged skips** — `[SKIP]` log lines for filtered-out signals.
+### Critical bugs fixed (in this codebase, in order)
+- **State machine** — ARMED/UNARMED per level, re-arms on box re-entry. Eliminates stale-level chains.
+- **Broker-correct SL/TP validation** — BUY against Bid, SELL against Ask, with stops_level + freeze_level + spread + safety margin.
+- **R:R filter with logged skips** — `[SKIP]` log lines.
+- **Per-position risk tracking** (EA lines 120–207) — day-R counter uses actual broker-widened SL, not configured SL. Fixes the 41% under-count bug.
+- **Scanner `eff_tp` direction** — was `tp - spread`, corrected to `tp + spread`. Made the −0.350R baseline drop to honest −0.406R.
+- **Scanner broker auto-load** — BROKER_PRESETS dict means no more "forgot the flag" idealised reports.
 
 ---
 
@@ -94,11 +99,13 @@ The current ICTSessionsEA includes:
 
 | User asks | Read this first |
 |---|---|
-| "How many patterns?" | `STRATEGY_REPORT.md` or this file's table above |
+| "What's the strategy?" | `MODEL_FINDINGS_2026-05-26.md` (winning model + forecast) |
+| "How do I install?" | `SETUP_GUIDE.txt` (current) |
 | "What's done?" | `CHANGELOG.md` |
 | "What's next?" | `CHANGELOG.md` (Backlog section) |
-| "How do I install?" | `USER_GUIDE.md` |
-| "Why did this trade fire?" | Read the live log at `C:\Users\User\AppData\Roaming\MetaQuotes\Terminal\6AB79ED795024EC1B7F61552A87628BC\MQL5\Logs\YYYYMMDD.log` |
+| "Why did this trade fire?" | Live log at `C:\Users\User\AppData\Roaming\MetaQuotes\Terminal\6AB79ED795024EC1B7F61552A87628BC\MQL5\Logs\YYYYMMDD.log` |
+| "How much will I make?" | `MODEL_FINDINGS_2026-05-26.md` Expected performance table |
+| "How many patterns work?" | Only ONE: Pattern 9 with the specific config above. `MODEL_FINDINGS` cross-window data |
 | "Should I sell this?" | `SELLER_CHECKLIST.md` |
 
 ---
@@ -107,44 +114,59 @@ The current ICTSessionsEA includes:
 
 1. **Never modify EA inputs or code without explicit approval.** This user has lost money on bad changes; always propose, get a "go", then edit.
 2. **No new EA file names without checking** — user prefers fixing existing files unless we agreed otherwise.
-3. **The user trades a small live account (~$5–10 USD).** A single wrong trade can wipe a meaningful % — be cautious with risk-related changes.
-4. **Backtest expectancy ≠ live expectancy.** Always cite ~60–80% retention in any forecast.
+3. **The user trades a small live account (~$100 USD).** A single wrong trade can wipe a meaningful %. Be cautious with risk-related changes.
+4. **Backtest expectancy ≠ live expectancy.** Always cite 60–80% retention in any forecast. Default to 0.7 in tables.
 5. **The user has lost prior chat history before.** Keep this CLAUDE.md current after any meaningful change.
+6. **For diagnostic work, present full plan once and get one upfront approval; only pause for code/EA edits.** (Saved in memory.)
 
 ---
 
 ## Common commands
 
-### Run the scanner on V25 with current settings
+### Run the scanner on V25 (auto-loads broker preset for R_25)
 ```
-py PatternScanner.py --symbol R_25 --years 1 --point 0.001 --sl 500 --tp 940
+py PatternScanner.py --symbol R_25 --years 1 --sl 2000 --tp 6000
 ```
+The scanner auto-applies spread=137, stops_level=423, point=0.001, slippage=2 for R_25. To override, pass `--spread N --stops-level N`. To test the production config, use SL=2000 TP=6000 (current EA defaults).
 
-### Run scanner on V10
+### Cross-window stress test on Pattern 9
 ```
-py PatternScanner.py --symbol R_10 --years 1 --point 0.001 --sl 500 --tp 940
+py stress_full.py
 ```
+Tests Pattern 9 with extended wide-SL configs + 13:00 hour filter + all patterns × 4 configs across 4 windows. Output: `stress_full.log`.
 
-### Run scanner on a 1HZ variant
+### Hour-filter + drawdown verification
 ```
-py PatternScanner.py --symbol 1HZ25V --years 1 --point 0.001 --sl 500 --tp 940
+py verify_filters.py
 ```
+Output: `verify_filters.log`.
+
+### Run scanner on a new symbol (re-verify with broker reality)
+```
+py PatternScanner.py --symbol R_10 --years 1 --sl 2000 --tp 6000 --spread N --stops-level N
+```
+(Need to look up V10's actual broker spread + stops_level first, then add to `BROKER_PRESETS` in PatternScanner.py.)
 
 ### Read today's MT5 logs
-The path is:
 ```
 C:\Users\User\AppData\Roaming\MetaQuotes\Terminal\6AB79ED795024EC1B7F61552A87628BC\MQL5\Logs\YYYYMMDD.log
 ```
 
 ---
 
-## Current state (as of 2026-05-13)
+## Current state (as of 2026-05-29)
 
-- ✅ `ICTSessionsEA.mq5` built and ready, defaults set to Pattern 9 specs
-- ⏳ User has not yet demo-tested the production EA for the full 1-2 weeks
-- ⏳ V10 re-scan with broker-correct parameters is the next "high priority" backlog item
+- ✅ Scanner rewritten for broker realism (BROKER_PRESETS, $-frame R-multiple, slippage). Always honest now.
+- ✅ Pattern 9 wide-SL + 13:00 UTC filter discovered and cross-window verified (4/4 positive).
+- ✅ `ICTSessionsEA.mq5` defaults updated: SL=2000, TP=6000, hour filter ON ("13").
+- ✅ Day-R denominator bug already fixed in EA code (per-position risk tracking).
+- ✅ `ICTManualTradeAssist.mq5` built and verified working when dragged onto M5 chart.
+- ✅ All work committed to git (commit `1c1e3e7`).
+- 🔄 **DEMO TESTING IN PROGRESS** — EA on Deriv demo account. Target: 10–14 trading days. Currently early in this window.
+- ⏳ V10 broker-realistic re-scan — still on the backlog
 - ⏳ 1HZ variants untested
+- ⏳ Live deployment — gated on demo verification
 
 ---
 
-_When in doubt: read the four .md files, then ask the user before making code changes._
+_When in doubt: read `MODEL_FINDINGS_2026-05-26.md` for the current strategy, then `CHANGELOG.md` for history, then ask the user before making code changes._

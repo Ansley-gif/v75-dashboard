@@ -1,6 +1,30 @@
 # Strategy Test Report — Every Pattern, Every Symbol
 
-Complete backtest results for every strategy we tested across every Deriv synthetic index. Use this to decide which strategy to run on which instrument.
+> ## ⚠️ STALE — DO NOT RELY ON THE NUMBERS BELOW
+>
+> Every expectancy figure in this document was produced by `PatternScanner.py`
+> running with **no broker friction modelled** (spread=0, stops_level=0,
+> slippage=0). After the 2026-05-22 EA blowup we discovered two bugs that
+> invalidated these results:
+>
+> 1. **Broker stops_level widens SL** from 500 → 707 ticks, making R:R worse than designed
+> 2. **Scanner `eff_tp` was wrong direction**: spread *added* to TP distance, not subtracted
+>
+> Once both fixes were applied, **Pattern 9's honest expectancy collapsed
+> from +0.841R/trade → −0.406R/trade**. Every pattern in this document is now
+> negative under broker reality, EXCEPT the surviving config:
+>
+> **Pattern 9 with SL=2000 / TP=6000 + 13:00 UTC hour filter** = +0.122R/trade
+> backtest, 4 of 4 non-overlapping 2-month windows positive.
+>
+> ### Where to find current numbers:
+> - **`MODEL_FINDINGS_2026-05-26.md`** — winning model spec, cross-window data, $-frame forecast
+> - **`DIAGNOSIS_2026-05-22.md`** — how the original +0.841R fell apart
+> - **`CHANGELOG.md`** — Phase 9 entry summarises the rewrite
+>
+> The body of this file is preserved as a historical record of what the
+> original (buggy) scanner reported. **Do not deploy any strategy whose
+> numbers come from this file alone.**
 
 ---
 
@@ -198,3 +222,19 @@ Pattern 9: 2,656 trades over 9 months. Standard error on expectancy ≈ 0.04R. S
 ---
 
 _Run your own scan any time with `PatternScanner.py` if you want to update these numbers or test a new symbol._
+
+---
+
+## Updated as of 2026-05-29: current production numbers
+
+After fixing the scanner (broker preset auto-load + corrected `eff_tp` direction), the only surviving config across cross-window stress tests is:
+
+| | Honest backtest | After 0.7 live retention |
+|---|---:|---:|
+| **Pattern 9, SL=2000/TP=6000, 13:00 UTC only** | +0.122R/trade | +0.087R/trade |
+| Trades per year (8-month sample × 1.5) | ~504 | ~504 |
+| Annual $ on $100 acct @ 0.5 lot | ~+$62 | ~**+$44** |
+| Worst 2-month DD in backtest | $25 | — |
+| Cross-window positive | **4/4** | — |
+
+See `MODEL_FINDINGS_2026-05-26.md` for the cross-window data, drawdown profile, and full hour-filter analysis.

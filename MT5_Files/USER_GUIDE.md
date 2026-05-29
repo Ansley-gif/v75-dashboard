@@ -2,28 +2,42 @@
 
 A complete guide to every file in this package, what it does, and how to use it.
 
+> **For the CURRENT install + deployment steps, prefer `SETUP_GUIDE.txt`** —
+> it reflects the post-2026-05-26 strategy update (SL=2000/TP=6000 + 13:00
+> UTC filter). This guide is kept as background reference but some sections
+> (EA defaults, expected performance) are flagged below where they differ
+> from current production.
+
 ---
 
 ## 1. What's in this package
 
 ```
 MT5_Files/
-├── ICTSessionsEA.mq5         ← THE PRODUCTION EA (Pattern 9, ICT sessions)
-├── SessionOCLevels.mq5       ← Visual indicator (session boxes + OC/CC levels)
-├── PatternScanner.py         ← Python backtester for strategy research
+├── ICTSessionsEA.mq5            ← THE PRODUCTION EA
+├── ICTManualTradeAssist.mq5     ← Manual-trading indicator (NEW, matches EA)
+├── SolidSessionOCLevels.mq5     ← Simpler session-box visualiser (legacy)
+├── PatternScanner.py            ← Python backtester (broker-realistic)
 │
-├── OpenCloseEA.mq5           ← Original ICT EA (older sessions, kept as fallback)
-├── GOLDOpenCloseEA.mq5       ← Mid-development EA (state-machine version of OpenCloseEA)
-├── SessionBreakoutEA.mq5     ← v1 EA (broader session H/L breakout, deprecated)
-├── SessionLevels.mq5         ← v1 indicator (with FVGs and OBs, deprecated)
+├── stress_windows.py            ← Cross-window stability test
+├── stress_full.py               ← Comprehensive 3-phase stress test
+├── verify_filters.py            ← Hour-filter + drawdown verification
 │
-├── CHANGELOG.md              ← What's been built and what's next
-├── USER_GUIDE.md             ← This file
-├── STRATEGY_REPORT.md        ← Detailed strategy results across symbols
-├── SELLER_CHECKLIST.md       ← For productising / selling
-├── HOW_TO_INSTALL.txt        ← Quick install steps for the EA
-├── OPEN_CLOSE_README.txt     ← Strategy explanation
-└── scanner_results.csv       ← Last full scanner output (every trade tested)
+├── OpenCloseLevels.mq5          ← Original ICT EA (older sessions, fallback)
+├── GOLDOpenCloseEA.mq5          ← Mid-development EA (state-machine version)
+├── SessionBreakoutEA.mq5        ← v1 EA (broader strategy, deprecated)
+├── SessionLevels.mq5            ← v1 indicator (with FVGs and OBs, deprecated)
+│
+├── MODEL_FINDINGS_2026-05-26.md ← ★ Winning model spec + diagnostic story
+├── DIAGNOSIS_2026-05-22.md      ← The EA blowup audit
+├── SETUP_GUIDE.txt              ← ★ Current step-by-step install + run guide
+├── CHANGELOG.md                 ← What's been built and what's next
+├── USER_GUIDE.md                ← This file
+├── STRATEGY_REPORT.md           ← Historical results (STALE — see MODEL_FINDINGS)
+├── SELLER_CHECKLIST.md          ← For productising / selling
+├── HOW_TO_INSTALL.txt           ← Original install steps (superseded by SETUP_GUIDE)
+├── OPEN_CLOSE_README.txt        ← Historical strategy explanation
+└── *.log                        ← Analysis output from the 2026-05-26 work
 ```
 
 ---
@@ -48,10 +62,11 @@ MT5_Files/
 
 Each candle's HIGH and LOW become breakout levels that live for 24 hours. So at any moment there are up to 12 active levels (6 candles × HIGH + LOW).
 
-**The trade rules:**
-1. When an M5 candle closes ABOVE a tracked HIGH → BUY at next ask, SL = entry − 500 ticks, TP = entry + 940 ticks
-2. When an M5 candle closes BELOW a tracked LOW → SELL at next bid, SL = entry + 500 ticks, TP = entry − 940 ticks
+**The trade rules (CURRENT DEFAULTS as of 2026-05-29):**
+1. When an M5 candle closes ABOVE a tracked HIGH **at 13:00 UTC** → BUY at next ask, SL = entry − 2000 ticks, TP = entry + 6000 ticks
+2. When an M5 candle closes BELOW a tracked LOW **at 13:00 UTC** → SELL at next bid, SL = entry + 2000 ticks, TP = entry − 6000 ticks
 3. After a trade fires, that level becomes UNARMED. It must wait for price to close back inside its box before it can fire again.
+4. **Outside 13:00 UTC the hour filter blocks entries** — the EA logs `[SKIP] hour filter blocked` instead of trading.
 
 **Inputs at a glance (defaults are correct — usually leave alone):**
 
@@ -69,55 +84,69 @@ InpLotSize       = 0.5      ←V25 broker minimum
 InpMagic         = 25009    ←unique to this EA
 
 ─ Stop loss ──
-InpSLMode        = 1        ←1 = fixed ticks (Pattern 9 backtest)
-InpFixedSLTicks  = 500      ←= 0.5 price units on V25
-InpTPTicks       = 940      ←= 0.94 price units (R:R 1:1.875)
+InpSLMode        = 1        ←1 = fixed ticks (current)
+InpFixedSLTicks  = 2000     ←= 2.0 price units on V25 (1R = $1.00 at 0.5 lot)
+InpTPTicks       = 6000     ←= 6.0 price units (R:R 1:3.0, BE WR only 25%)
 
 ─ Risk ──
 InpUseDailyStop    = true
 InpDailyMaxLossR   = 3.0    ←pause trading after 3R loss in a day
 
 ─ Hour filter ──
-InpUseHourFilter = false    ←off by default; the state machine handles freshness
+InpUseHourFilter = true     ←ON — only 13:00 UTC trades (verified 4/4 windows)
+InpHoursAllowed  = "13"     ←NY open only
 ```
 
-### `SessionOCLevels.mq5` — the visual
+**Why these specific numbers?** See `MODEL_FINDINGS_2026-05-26.md`. Short version: wider SL is needed because V25's M5 noise eats SL<2000. 13:00 UTC is the only hour that's consistently positive across 4 non-overlapping 2-month windows.
 
-**What it does:** Draws on your chart what the EA is "seeing" internally. Visualises the 6 session boxes and OC/CC candle high/low levels.
+### `ICTManualTradeAssist.mq5` — the manual-trading companion
+
+**What it does:** Shows exactly what the EA sees so you can hand-trade the same setups. Visualises session boxes, OC/CC level lines with live ARMED/UNARMED state, highlights the 13:00 UTC trade window, and shows status panel + SL/TP guides.
 
 | What you'll see | Means |
 |---|---|
-| Solid blue lines | Asia OPEN candle HIGH and LOW |
-| Dashed blue lines | Asia CLOSE candle HIGH and LOW |
-| Solid green lines | London OPEN candle HIGH and LOW |
-| Dashed green lines | London CLOSE candle HIGH and LOW |
-| Solid orange lines | NY OPEN candle HIGH and LOW |
-| Dashed orange lines | NY CLOSE candle HIGH and LOW |
+| Solid coloured lines (blue/green/orange) | OPEN candle HIGH/LOW levels for each session |
+| Dashed coloured lines | CLOSE candle HIGH/LOW levels for each session |
+| `[ARMED]` next to a level label | Level is live — a close past it will fire a trade (inside 13:00 UTC window) |
+| `[UNARMED]` next to a level label | Level already fired today — needs box re-entry to re-arm |
 | Light shaded box per session | Session range (high-to-low) as it progresses |
-| Dotted vertical lines | Where each session ends |
+| Pale green vertical band | 13:00 UTC trade window (only hour the EA will fire) |
+| Red dotted horizontal lines | SL guides at ±2000 ticks from current bid |
+| Green dotted horizontal lines | TP guides at ±6000 ticks from current bid |
+| Status panel (top-left) | UTC time, countdown to next 13:00, armed levels list, today's signal count |
 
-**Today only:** at 22:00 UTC (Asia open = start of new trading day) all previous-day objects are wiped and the chart starts fresh.
+**Recommended install:** see `SETUP_GUIDE.txt` Part 3 — drag onto an M5 V25 chart, then save your own template via MT5's "Save Template" UI.
 
-### `PatternScanner.py` — the researcher
+### `SolidSessionOCLevels.mq5` — legacy simpler visualiser
 
-**What it does:** Pulls 1 year of M5 candles from the Deriv API, then simulates 10 different ICT-style strategies and prints a full statistical report. Used to validate strategies BEFORE risking real money.
+Kept around as a lightweight alternative. Just draws session boxes + OC/CC lines without the ARMED state, panel, or trade-window highlight. Use `ICTManualTradeAssist.mq5` for the production strategy.
 
-**Run:**
+### `PatternScanner.py` — the researcher (BROKER-REALISTIC)
+
+**What it does:** Pulls up to ~8 months of M5 candles from the Deriv API, simulates 10 different ICT-style strategies under broker reality (spread + stops_level + slippage), and prints a $-frame statistical report. Used to validate strategies BEFORE risking real money.
+
+**Run (current production config):**
 ```
-py PatternScanner.py --symbol R_25 --years 1 --point 0.001 --sl 500 --tp 940
+py PatternScanner.py --symbol R_25 --years 1 --sl 2000 --tp 6000
 ```
+The scanner auto-loads `BROKER_PRESETS["R_25"]` = spread 137, stops_level 423, point 0.001, slippage 2.
 
 **Arguments:**
 | Flag | Default | Meaning |
 |---|---|---|
 | `--symbol` | R_75 | Deriv symbol code (R_10, R_25, R_50, R_75, 1HZ25V, etc.) |
 | `--years` | 1.0 | How much history to fetch |
-| `--point` | 0.01 | Tick size for the symbol (V25 = 0.001) |
-| `--sl` | 40 | SL distance in "ticks" (the `--point` units) |
-| `--tp` | 75 | TP distance in "ticks" |
+| `--point` | 0.01 | Tick size for the symbol (V25 = 0.001, auto-loaded for R_25) |
+| `--sl` | 40 | Configured SL distance in ticks (broker may widen via stops_level) |
+| `--tp` | 75 | Configured TP distance in ticks |
+| `--spread` | 0 | Broker spread in ticks (auto-loaded for known symbols) |
+| `--stops-level` | 0 | Broker stops_level in ticks (auto-loaded for known symbols) |
+| `--slippage` | 2 | Entry slippage in ticks (adverse fill beyond spread) |
 | `--hard-sl-mult` | 1.0 | (Pattern 8 only) hard SL multiplier of box height |
 
-Results print to console and every trade goes to `scanner_results.csv`.
+If running an unrecognised symbol with no `--spread/--stops-level`, the scanner prints a LOUD WARNING banner and produces an idealised (untrustworthy) report.
+
+Results print to console with $-frame R-multiple per trade. Every trade is also written to `scanner_results.csv`.
 
 ---
 
@@ -222,18 +251,24 @@ Format is `ICT_<direction>:<SESSION>_<KIND>_<SIDE>` where:
 
 ## 8. Expected performance
 
-Based on Pattern 9 backtest (8 months R_25 M5 data):
+Based on the broker-realistic backtest of Pattern 9 + SL=2000/TP=6000 + 13:00 UTC filter (2026-05-26 stress test, 8 months R_25 M5 data, 4 non-overlapping 2-month windows):
 
-| Metric | Backtest | Realistic live estimate |
-|---|---|---|
-| Trades per day | ~10 | 5–12 |
-| Win rate | 63.9% | 55–62% |
-| Average R per trade | +0.841R | +0.40 to +0.60R |
-| Avg $ per trade (at 0.5 lot) | +$0.21 | +$0.10 to +$0.15 |
-| Daily expectancy | +$2.10 | +$1.00 to +$1.50 |
-| Worst single trade | −1R (= −$0.25) | up to −2R if slippage |
+| Metric | Backtest | Live (×0.7 retention) |
+|---|---:|---:|
+| Trades per day | ~1–2 | ~1–2 |
+| Win rate | 28.1% | 24–32% expected |
+| Average R per win (=$ R:R) | +3.0R = +$3.00 | same |
+| Loss per stop | −1R = −$1.00 | same |
+| Expectancy per trade | +0.122R = +$0.122 | +0.087R = +$0.087 |
+| Trades per year | ~504 | ~504 |
+| Annual P/L on $100 acct | ~+$62 | **~+$44** |
+| Worst 2-month DD seen | −$25 (25% of $100) | similar |
+| Longest losing streak seen | 12 trades | similar |
+| Probability of profitable year | 86% | similar |
 
-**Important:** Backtests have look-ahead bias (TP and SL in same bar both count as wins). Live will be lower. Plan for ~60–70% of backtest figures, not 100%.
+**Important:** This is a much smaller edge than the original `+0.841R` STRATEGY_REPORT figure — the old number came from the scanner without broker friction modelled. The current numbers reflect 2x spread + slippage + broker-widened SL.
+
+**Variance dominates short-term outcomes.** Plan to see losing weeks (−$5 in a week is normal), occasional losing months (−$10 to −$15), and rare losing quarters. Don't sit on the EA's shoulder; check at the end of each week, not each day. See `MODEL_FINDINGS_2026-05-26.md` for the full forecast tables.
 
 ---
 
@@ -241,8 +276,10 @@ Based on Pattern 9 backtest (8 months R_25 M5 data):
 
 - Multiple "invalid stops" errors in a row → broker may have changed minimums; paste log and ask
 - EA stops trading for days with no logs → MT5 likely disconnected from server
-- Live win rate drops below 50% over 100+ trades → strategy may have decayed, re-run scanner
+- Live win rate drops below 18% over 100+ trades → strategy may have decayed, re-run scanner. (Target WR is ~28%, so allow 22–34% before worrying.)
+- 13:00 UTC passes with armed levels but no trade fires → confirm hour filter is reading UTC not broker time; check Experts log for `[SKIP] hour filter blocked`
 - Account balance drops more than 30% from peak → STOP and reassess; don't average down
+- Average $-R per win drops below $2.00 → live spread + slippage is worse than modeled; tighten the scanner's BROKER_PRESETS to match reality and re-test
 
 ---
 
